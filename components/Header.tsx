@@ -6,22 +6,22 @@ export default async function Header() {
   const session = await getServerSession(authOptions)
 
   return (
-    <header className="border-b border-gray-200 bg-white">
-      {/* Top row */}
+    <header className="sticky top-0 z-50 bg-white/80 backdrop-blur border-b border-gray-200">
+      {/* Top bar */}
       <div className="mx-auto max-w-6xl px-6 py-3">
         <div className="flex items-center justify-between">
-          {/* Brand / Sign out */}
+          {/* Brand / Logout */}
           {session ? (
             <SignOutButton />
           ) : (
-            <div className="text-sm font-semibold text-gray-950">
+            <div className="text-sm font-semibold tracking-tight text-gray-950">
               Fincheck
             </div>
           )}
 
           {/* Auth actions */}
           {!session && (
-            <div className="flex items-center gap-4 text-sm">
+            <div className="flex items-center gap-3 text-sm">
               <a
                 href="/sign-in"
                 className="text-gray-600 hover:text-gray-900 transition-colors"
@@ -30,7 +30,7 @@ export default async function Header() {
               </a>
               <a
                 href="/sign-up"
-                className="rounded-md border border-gray-300 px-2.5 py-1 text-gray-700 hover:border-gray-400 hover:bg-gray-50 transition-colors"
+                className="rounded-md bg-gray-900 px-3 py-1.5 text-white hover:bg-gray-800 transition-colors"
               >
                 Sign up
               </a>
@@ -39,34 +39,27 @@ export default async function Header() {
         </div>
       </div>
 
-      {/* Bottom navigation */}
-      <nav className="border-t border-gray-200 bg-gray-50">
-        <div className="mx-auto max-w-6xl px-6 py-2">
-          <ul className="flex gap-5 text-sm text-gray-600">
-            <li>
-              <a
-                href="/image-loader"
-                className="hover:text-gray-900 transition-colors"
-              >
-                Image Loader
-              </a>
-            </li>
-            <li>
-              <a
-                href="/results"
-                className="hover:text-gray-900 transition-colors"
-              >
-                Results
-              </a>
-            </li>
-            <li>
-              <a
-                href="/predictions"
-                className="hover:text-gray-900 transition-colors"
-              >
-                Predictions
-              </a>
-            </li>
+      {/* Navigation */}
+      <nav className="bg-gray-50/80 border-t border-gray-200">
+        <div className="mx-auto max-w-6xl px-6">
+          <ul className="flex gap-6 text-sm text-gray-600">
+            {[
+              { href: "/image-loader", label: "Image Loader" },
+              { href: "/results", label: "Results" },
+              { href: "/predictions", label: "Predictions" },
+            ].map((item) => (
+              <li key={item.href}>
+                <a
+                  href={item.href}
+                  className="relative block py-2 transition-colors hover:text-gray-900
+                             after:absolute after:inset-x-0 after:-bottom-px after:h-px
+                             after:scale-x-0 after:bg-gray-900 after:transition-transform
+                             hover:after:scale-x-100"
+                >
+                  {item.label}
+                </a>
+              </li>
+            ))}
           </ul>
         </div>
       </nav>
