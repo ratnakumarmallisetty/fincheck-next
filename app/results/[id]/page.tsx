@@ -29,10 +29,13 @@ type ChartItem = {
 
 export default function ResultPage() {
   const params = useParams()
-  const id = params?.id as string
+  const id =
+    typeof params?.id === "string" ? params.id : null
 
   const [doc, setDoc] = useState<ResultDoc | null>(null)
   const [loading, setLoading] = useState(true)
+
+  /* ---------------- FETCH ---------------- */
 
   useEffect(() => {
     if (!id) return
@@ -49,7 +52,44 @@ export default function ResultPage() {
       .catch(() => setLoading(false))
   }, [id])
 
-  /* ---------------- UI STATES ---------------- */
+  /* ---------------- DATA TRANSFORMATION (HOOK MUST BE HERE) ---------------- */
+
+  const chartData: ChartItem[] = useMemo(() => {
+    if (!doc?.data) return []
+
+    return Object.entries(doc.data)
+      .map(([model, v]) => {
+        const confidence =
+          typeof v.confidence === "number" ? v.confidence : 0
+        const latency =
+          typeof v.latency_ms === "number" ? v.latency_ms : 0
+        const ram =
+          typeof v.ram_mb === "number" ? v.ram_mb : 0
+
+        return {
+          model,
+          prediction:
+            typeof v.prediction === "number"
+              ? v.prediction
+              : -1,
+          confidence,
+          latency_ms: latency,
+          ram_mb: ram,
+          throughput:
+            latency > 0
+              ? Number((1000 / latency).toFixed(2))
+              : 0,
+          efficiency:
+            latency > 0
+              ? Number((confidence / latency).toFixed(2))
+              : 0,
+          cold_start: Boolean(v.cold_start),
+        }
+      })
+      .filter((m) => m.confidence > 0)
+  }, [doc])
+
+  /* ---------------- UI STATES (SAFE NOW) ---------------- */
 
   if (loading) {
     return (
@@ -67,38 +107,6 @@ export default function ResultPage() {
     )
   }
 
-  /* ---------------- DATA TRANSFORMATION ---------------- */
-
-  const chartData: ChartItem[] = useMemo(() => {
-    const raw = Object.entries(doc.data).map(([model, v]) => {
-      const confidence =
-        typeof v.confidence === "number" ? v.confidence : 0
-      const latency =
-        typeof v.latency_ms === "number" ? v.latency_ms : 0
-      const ram =
-        typeof v.ram_mb === "number" ? v.ram_mb : 0
-
-      return {
-        model,
-        prediction:
-          typeof v.prediction === "number" ? v.prediction : -1,
-        confidence,
-        latency_ms: latency,
-        ram_mb: ram,
-        throughput:
-          latency > 0 ? Number((1000 / latency).toFixed(2)) : 0,
-        efficiency:
-          latency > 0
-            ? Number((confidence / latency).toFixed(2))
-            : 0,
-        cold_start: Boolean(v.cold_start),
-      }
-    })
-
-    // Filter invalid models
-    return raw.filter((m) => m.confidence > 0)
-  }, [doc.data])
-
   /* ---------------- UI ---------------- */
 
   return (
@@ -108,17 +116,18 @@ export default function ResultPage() {
           Inference Results
         </h1>
         <p className="text-sm text-gray-500">
-          Comparative analysis of optimized MNIST models across
-          confidence, latency, memory, and efficiency metrics
+          Comparative analysis of optimized MNIST models
+          across confidence, latency, memory, and efficiency
+          metrics
         </p>
       </header>
 
-      {/* 📊 Research-grade Charts */}
+      {/* 📊 Charts */}
       {chartData.length > 0 && (
         <ChartSection data={chartData} />
       )}
 
-      {/* 📄 Raw JSON output (debug / transparency) */}
+      {/* 📄 Raw Output */}
       <div className="rounded-2xl border bg-gray-50 p-6">
         <h2 className="mb-3 text-lg font-semibold">
           Raw Model Output
