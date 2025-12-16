@@ -8,7 +8,7 @@ from PIL import Image
 import torchvision.transforms as transforms
 
 from model_def import MNISTCNN
-import download_models
+# import download_models
 
 # download_models.download()
 

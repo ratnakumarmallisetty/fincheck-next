@@ -4,11 +4,11 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
 MODEL_DIR = BASE_DIR / "model"
-MODEL_DIR.mkdir(exist_ok=True)
 
-# 🔴 MUST MATCH YOUR ACTUAL RELEASE TAG
+print("📁 Model dir:", MODEL_DIR)
+MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
 RELEASE_TAG = "v1-models"
-
 BASE_URL = f"https://github.com/mukesh1352/fincheck-next/releases/download/{RELEASE_TAG}"
 
 MODELS = [
@@ -31,11 +31,13 @@ def download():
         print(f"⬇️ Downloading {url}")
 
         r = requests.get(url, stream=True)
-        if r.status_code != 200:
-            raise RuntimeError(f"❌ Failed to download {name} ({r.status_code})")
+        r.raise_for_status()
 
         with open(dest, "wb") as f:
-            for chunk in r.iter_content(chunk_size=8192):
+            for chunk in r.iter_content(8192):
                 f.write(chunk)
 
     print("🎉 All models downloaded successfully")
+
+if __name__ == "__main__":
+    download()
