@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { useParams } from "next/navigation"
 import ChartSection from "@/components/ChartSection"
 
@@ -14,6 +14,17 @@ type ModelResult = {
 
 type ResultDoc = {
   data: Record<string, ModelResult>
+}
+
+type ChartItem = {
+  model: string
+  prediction: number
+  confidence: number
+  latency_ms: number
+  ram_mb: number
+  throughput: number
+  efficiency: number
+  cold_start: boolean
 }
 
 export default function ResultPage() {
@@ -38,6 +49,8 @@ export default function ResultPage() {
       .catch(() => setLoading(false))
   }, [id])
 
+  /* ---------------- UI STATES ---------------- */
+
   if (loading) {
     return (
       <p className="p-8 text-gray-500">
@@ -54,45 +67,58 @@ export default function ResultPage() {
     )
   }
 
-  /**
-   * 🔹 Transform backend response → chart-friendly format
-   * Filters out invalid / incomplete models safely
-   */
-  const chartData = Object.entries(doc.data)
-    .map(([model, v]) => ({
-      model,
-      prediction:
-        typeof v.prediction === "number"
-          ? v.prediction
-          : -1,
-      confidence:
-        typeof v.confidence === "number"
-          ? v.confidence
-          : 0,
-      latency_ms:
-        typeof v.latency_ms === "number"
-          ? v.latency_ms
-          : 0,
-      ram_mb:
-        typeof v.ram_mb === "number"
-          ? v.ram_mb
-          : 0,
-      cold_start: Boolean(v.cold_start),
-    }))
-    .filter((m) => m.confidence > 0)
+  /* ---------------- DATA TRANSFORMATION ---------------- */
+
+  const chartData: ChartItem[] = useMemo(() => {
+    const raw = Object.entries(doc.data).map(([model, v]) => {
+      const confidence =
+        typeof v.confidence === "number" ? v.confidence : 0
+      const latency =
+        typeof v.latency_ms === "number" ? v.latency_ms : 0
+      const ram =
+        typeof v.ram_mb === "number" ? v.ram_mb : 0
+
+      return {
+        model,
+        prediction:
+          typeof v.prediction === "number" ? v.prediction : -1,
+        confidence,
+        latency_ms: latency,
+        ram_mb: ram,
+        throughput:
+          latency > 0 ? Number((1000 / latency).toFixed(2)) : 0,
+        efficiency:
+          latency > 0
+            ? Number((confidence / latency).toFixed(2))
+            : 0,
+        cold_start: Boolean(v.cold_start),
+      }
+    })
+
+    // Filter invalid models
+    return raw.filter((m) => m.confidence > 0)
+  }, [doc.data])
+
+  /* ---------------- UI ---------------- */
 
   return (
-    <div className="mx-auto max-w-6xl p-8 space-y-10">
-      <h1 className="text-3xl font-bold tracking-tight">
-        Inference Results
-      </h1>
+    <div className="mx-auto max-w-7xl p-8 space-y-12">
+      <header className="space-y-2">
+        <h1 className="text-3xl font-bold tracking-tight">
+          Inference Results
+        </h1>
+        <p className="text-sm text-gray-500">
+          Comparative analysis of optimized MNIST models across
+          confidence, latency, memory, and efficiency metrics
+        </p>
+      </header>
 
-      {/* 📊 Charts */}
+      {/* 📊 Research-grade Charts */}
       {chartData.length > 0 && (
         <ChartSection data={chartData} />
       )}
 
-      {/* 📄 Raw JSON output */}
+      {/* 📄 Raw JSON output (debug / transparency) */}
       <div className="rounded-2xl border bg-gray-50 p-6">
         <h2 className="mb-3 text-lg font-semibold">
           Raw Model Output
