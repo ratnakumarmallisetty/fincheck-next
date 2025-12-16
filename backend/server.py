@@ -53,6 +53,11 @@ for f in MODEL_FILES:
     model.eval()
     MODELS[f] = model
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 @app.post("/run")
 async def run(image: UploadFile = File(...)):
     img = Image.open(image.file).convert("L")
