@@ -4,17 +4,21 @@ import connectDB from "@/lib/mongodb"
 export async function POST(req: Request) {
   try {
     const form = await req.formData()
-    const image = form.get("image") as File
+    const file = form.get("image")
 
-    if (!image) {
+    if (!(file instanceof File)) {
       return NextResponse.json(
         { error: "No image provided" },
         { status: 400 }
       )
     }
 
+    // 🔥 Convert Web File → Buffer
+    const arrayBuffer = await file.arrayBuffer()
+    const buffer = Buffer.from(arrayBuffer)
+
     const fd = new FormData()
-    fd.append("image", image)
+    fd.append("image", new Blob([buffer]), file.name)
 
     const r = await fetch("http://127.0.0.1:8000/run", {
       method: "POST",
