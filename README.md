@@ -45,3 +45,6 @@ just build   # production build
 just lint    # run checks
 just format # running the formatter 
 ```
+
+
+“We implement a lightweight segmentation-based OCR pipeline as a pre-processing step, while keeping the CNN architecture unchanged.”
