@@ -2,34 +2,27 @@
 
 import { useEffect, useState, useMemo } from "react"
 import { useParams } from "next/navigation"
-import MetricSection from "@/components/charts/MetricSection"
+import ChartSection from "@/components/charts/ChartSection"
+import type { ChartItem } from "@/components/charts/metrics/types"
 
-/* ---------------- TYPES ---------------- */
-
-type ModelResult = {
-  prediction?: number
-  confidence?: number
-  latency_ms?: number
-  ram_mb?: number
-  cold_start?: boolean
-}
+/* ---------------- BACKEND DOCUMENT TYPE ---------------- */
 
 type ResultDoc = {
-  data: Record<string, ModelResult>
+  data: Record<
+    string,
+    {
+      confidence?: number
+      latency_ms?: number
+      throughput?: number
+      entropy?: number
+      stability?: number
+      ram_mb?: number
+      cold_start_ms?: number
+    }
+  >
 }
 
-type ChartItem = {
-  model: string
-  prediction: number
-  confidence: number
-  latency_ms: number
-  ram_mb: number
-  throughput: number
-  efficiency: number
-  cold_start: boolean
-}
-
-/* ---------------- FIXED MODEL ORDER (IMPORTANT) ---------------- */
+/* ---------------- FIXED MODEL ORDER ---------------- */
 
 const MODEL_ORDER = [
   "baseline_mnist.pth",
@@ -53,7 +46,7 @@ export default function ResultPage() {
     if (!id) return
 
     fetch(`/api/results/${id}`)
-      .then(async (r) => {
+      .then((r) => {
         if (!r.ok) throw new Error("Failed to fetch")
         return r.json()
       })
@@ -64,7 +57,7 @@ export default function ResultPage() {
       .catch(() => setLoading(false))
   }, [id])
 
-  /* ---------------- DATA TRANSFORMATION ---------------- */
+  /* ---------------- DATA → CHART MODEL ---------------- */
 
   const chartData: ChartItem[] = useMemo(() => {
     if (!doc?.data) return []
@@ -72,33 +65,16 @@ export default function ResultPage() {
     return MODEL_ORDER.map((model) => {
       const v = doc.data[model] ?? {}
 
-      const confidence =
-        typeof v.confidence === "number" ? v.confidence : 0
-
-      const latency =
-        typeof v.latency_ms === "number" ? v.latency_ms : 0
-
-      const ram =
-        typeof v.ram_mb === "number" ? v.ram_mb : 0
-
       return {
         model,
-        prediction:
-          typeof v.prediction === "number" ? v.prediction : -1,
-
-        confidence,
-        latency_ms: latency,
-        ram_mb: ram,
-
-        throughput:
-          latency > 0 ? Number((1000 / latency).toFixed(2)) : 0,
-
-        efficiency:
-          latency > 0
-            ? Number((confidence / latency).toFixed(4))
-            : 0,
-
-        cold_start: Boolean(v.cold_start),
+        confidence: typeof v.confidence === "number" ? v.confidence : 0,
+        latency_ms: typeof v.latency_ms === "number" ? v.latency_ms : 0,
+        throughput: typeof v.throughput === "number" ? v.throughput : 0,
+        entropy: typeof v.entropy === "number" ? v.entropy : 0,
+        stability: typeof v.stability === "number" ? v.stability : 0,
+        ram_mb: typeof v.ram_mb === "number" ? v.ram_mb : 0,
+        cold_start_ms:
+          typeof v.cold_start_ms === "number" ? v.cold_start_ms : 0,
       }
     })
   }, [doc])
@@ -131,16 +107,17 @@ export default function ResultPage() {
         </h1>
         <p className="text-sm text-gray-500">
           Comparative analysis of optimized MNIST models across
-          accuracy, latency, memory usage, and efficiency metrics
+          confidence, latency, throughput, entropy, stability,
+          memory usage, and cold-start behavior
         </p>
       </header>
 
-      {/* 📊 Research-Grade Charts */}
+      {/* 📊 Charts */}
       {chartData.length > 0 && (
-        <MetricSection data={chartData} />
+        <ChartSection data={chartData} />
       )}
 
-      {/* 📄 Raw Output (Transparency for Paper Reviewers) */}
+      {/* 📄 Raw Output */}
       <div className="rounded-2xl border bg-gray-50 p-6">
         <h2 className="mb-3 text-lg font-semibold">
           Raw Model Output

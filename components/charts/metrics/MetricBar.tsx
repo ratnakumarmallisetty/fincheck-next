@@ -8,27 +8,28 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts"
-import ChartWrapper from "../ChartWrapper"
+import GraphCard from "../GraphCard"
+import { ChartItem } from "./types"
 
-export default function EntropyConfidenceBarChart({
+export default function MetricBar({
+  title,
+  dataKey,
   data,
 }: {
-  data: any[]
+  title: string
+  dataKey: keyof ChartItem
+  data: ChartItem[]
 }) {
   return (
-    <ChartWrapper
-      title="Prediction Entropy vs Confidence"
-      description="Lower entropy indicates higher prediction certainty"
-    >
+    <GraphCard title={title}>
       <ResponsiveContainer width="100%" height={260}>
         <BarChart data={data}>
           <XAxis dataKey="model" hide />
           <YAxis />
           <Tooltip />
-          <Bar dataKey="entropy" />
-          <Bar dataKey="confidence" />
+          <Bar dataKey={dataKey as string} />
         </BarChart>
       </ResponsiveContainer>
-    </ChartWrapper>
+    </GraphCard>
   )
 }

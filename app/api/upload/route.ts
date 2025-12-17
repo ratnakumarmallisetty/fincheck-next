@@ -23,7 +23,16 @@ export async function POST(req: Request) {
     const fd = new FormData()
     fd.append("image", new Blob([buffer]), file.name)
 
-    const API_URL = process.env.INFERENCE_API_URL!
+    const API_URL = process.env.INFERENCE_API_URL
+
+    // 🚨 HARD FAIL if env var missing
+    if (!API_URL) {
+      console.error("INFERENCE_API_URL is not set")
+      return NextResponse.json(
+        { error: "Inference API not configured" },
+        { status: 500 }
+      )
+    }
 
     const r = await fetch(`${API_URL}/run`, {
       method: "POST",
@@ -40,6 +49,15 @@ export async function POST(req: Request) {
     }
 
     const data = await r.json()
+
+    // 🚨 HARD FAIL if backend returned empty data
+    if (!data || Object.keys(data).length === 0) {
+      console.error("Backend returned EMPTY inference result")
+      return NextResponse.json(
+        { error: "Empty inference result from backend" },
+        { status: 500 }
+      )
+    }
 
     const db = await connectDB()
     const result = await db.collection("model_results").insertOne({
