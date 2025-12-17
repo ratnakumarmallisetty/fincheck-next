@@ -70,9 +70,54 @@ Backend (FastAPI + PyTorch)
  ├─ POST /verify  → OCR-based verification
  └─ GET  /health  → Service health check
 
+ screenshot/
+├── correct-ocr.png
+├── history.png
+├── image-upload.png
+├── inference1.png
+├── rawoutput.png
+└── wrong-ocr.png
+
+
 Database (MongoDB Atlas)
  └─ Stores inference results
 ```
+---
+## Application Screenshots
+
+### Image Upload Interface
+This interface allows users to upload a handwritten digit image for inference and verification.
+![Image Upload](screenshot/image-upload.png)
+
+---
+
+### Inference Results and Model Comparison
+This view displays comparative performance metrics across all optimized MNIST models.
+![Inference Results](screenshot/inference1.png)
+
+---
+
+### Inference History
+Previously executed inference runs are stored and can be reviewed for comparison and analysis.
+![Inference History](screenshot/history.png)
+
+---
+
+### Raw Model Output
+This section shows the raw JSON output returned by the backend for transparency and reproducibility.
+![Raw Output](screenshot/rawoutput.png)
+
+---
+
+### OCR Verification – Correct Input
+Example of successful OCR verification where typed input matches the handwritten image.
+![Correct OCR](screenshot/correct-ocr.png)
+
+---
+
+### OCR Verification – Incorrect or Ambiguous Input
+Example showing OCR-detected ambiguity or mismatch between handwritten input and typed text.
+![Incorrect OCR](screenshot/wrong-ocr.png)
 
 ---
 
@@ -180,7 +225,7 @@ NEXTAUTH_SECRET=generated_secure_random_value
 * Never commit secrets to version control
 * In production, define this value using the platform’s environment variable settings (e.g., Vercel, Render)
 
-```
+
 
 ---
 
