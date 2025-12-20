@@ -6,16 +6,28 @@ export const dynamic = "force-dynamic"
 type ResultDoc = {
   _id: any
   createdAt: Date
-  data: Record<
-    string,
-    {
-      confidence?: number
-    }
-  >
+  data: Record<string, any>
+  meta?: {
+    evaluation_type?: "SINGLE" | "DATASET"
+    source?: "PREBUILT" | "CUSTOM" | "IMAGE_UPLOAD"
+    dataset_type?: string
+    num_images?: number
+  }
+}
+
+/* ---------- META NORMALIZATION ---------- */
+function normalizeMeta(meta?: ResultDoc["meta"]) {
+  return {
+    evaluation_type: meta?.evaluation_type ?? "SINGLE",
+    source: meta?.source ?? "IMAGE_UPLOAD",
+    dataset_type: meta?.dataset_type,
+    num_images: meta?.num_images,
+  }
 }
 
 export default async function ResultsPage() {
   const db = await connectDB()
+
   const docs = (await db
     .collection("model_results")
     .find()
@@ -24,70 +36,55 @@ export default async function ResultsPage() {
 
   return (
     <div className="mx-auto max-w-5xl p-8 space-y-8">
-      <h1 className="text-3xl font-bold tracking-tight">
-        Inference Results
+      <h1 className="text-3xl font-bold">
+        Inference History
       </h1>
 
-      <div className="space-y-4">
-        {docs.map((doc) => {
-          const models = Object.entries(doc.data || [])
-            .map(([model, v]) => ({
-              model,
-              confidence:
-                typeof v?.confidence === "number"
-                  ? v.confidence
-                  : 0,
-            }))
-            .sort((a, b) => b.confidence - a.confidence)
+      {docs.map((doc) => {
+        const meta = normalizeMeta(doc.meta)
 
-          const best = models[0]
+        return (
+          <Link
+            key={doc._id.toString()}
+            href={`/results/${doc._id}`}
+            className="block rounded-xl border bg-white p-5 hover:shadow-md"
+          >
+            <p className="text-sm text-gray-500">
+              {new Date(doc.createdAt).toLocaleString()}
+            </p>
 
-          return (
-            <Link
-              key={doc._id.toString()}
-              href={`/results/${doc._id}`}
-              className="group block rounded-xl border border-gray-200 bg-white p-5
-                         transition-all hover:shadow-md hover:border-gray-300
-                         dark:border-gray-800 dark:bg-gray-900"
-            >
-              {/* Header */}
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {new Date(doc.createdAt).toLocaleString()}
-                </p>
+            <div className="mt-2 flex flex-wrap gap-2 text-xs">
+              <span className="rounded-full bg-blue-100 px-2 py-0.5 text-blue-700">
+                {meta.evaluation_type === "SINGLE"
+                  ? "Single Image"
+                  : "Dataset"}
+              </span>
 
-                {best && (
-                  <span className="rounded-full bg-green-100 px-3 py-1
-                                   text-xs font-semibold text-green-700
-                                   dark:bg-green-900/30 dark:text-green-400">
-                    🥇 Best: {best.model}
-                  </span>
-                )}
-              </div>
+              <span className="rounded-full bg-purple-100 px-2 py-0.5 text-purple-700">
+                {meta.source}
+              </span>
 
-              {/* Ranking */}
-              <div className="mt-4 flex flex-wrap gap-2">
-                {models.map((m, idx) => (
-                  <span
-                    key={m.model}
-                    className={`rounded-md px-3 py-1 text-xs font-medium
-                      ${
-                        idx === 0
-                          ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
-                          : idx === 1
-                          ? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
-                          : "bg-gray-50 text-gray-500 dark:bg-gray-700 dark:text-gray-400"
-                      }`}
-                  >
-                    #{idx + 1} {m.model} ·{" "}
-                    {Math.round(m.confidence * 100)}%
-                  </span>
-                ))}
-              </div>
-            </Link>
-          )
-        })}
-      </div>
+              {meta.dataset_type && (
+                <span className="rounded-full bg-green-100 px-2 py-0.5 text-green-700">
+                  {meta.dataset_type}
+                </span>
+              )}
+
+              {meta.num_images && (
+                <span className="rounded-full bg-gray-200 px-2 py-0.5 text-gray-700">
+                  {meta.num_images} images
+                </span>
+              )}
+            </div>
+          </Link>
+        )
+      })}
+
+      {docs.length === 0 && (
+        <p className="text-sm text-gray-500">
+          No inference results found yet.
+        </p>
+      )}
     </div>
   )
 }

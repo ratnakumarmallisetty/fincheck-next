@@ -66,6 +66,44 @@ FinCheck addresses these challenges by combining systematic model benchmarking w
 - Always returns structured JSON responses
 
 ---
+---
+
+## Recent Updates and Enhancements
+
+The FinCheck system has been extended with several important research and software-level improvements to enhance correctness, robustness, and interpretability.
+
+### Dataset-Level Evaluation and Robustness Testing
+In addition to single-image inference, FinCheck now supports dataset-based evaluation, enabling statistically meaningful benchmarking. The system can evaluate models on:
+
+- Prebuilt MNIST subsets (100, 500, full test set)
+- Gaussian-noisy MNIST images
+- Gaussian-blurred MNIST images
+- Combined noise and blur degradation
+- Custom user-uploaded ZIP datasets
+
+For dataset evaluation, inference metrics are aggregated across images, allowing reliable comparison under realistic input conditions.
+
+### Explicit Evaluation Metadata
+Each inference run is now stored with structured metadata that explicitly records:
+
+- Evaluation type (single image or dataset)
+- Data source (image upload, prebuilt dataset, or custom dataset)
+- Dataset name and number of evaluated images (if applicable)
+
+This ensures that historical inference results are accurately interpreted and prevents ambiguity between single-image and dataset-level evaluations.
+
+### Overall Performance Summary
+The results interface now includes an overall performance summary that identifies:
+
+- The fastest model (lowest latency)
+- The most confident model (highest prediction confidence)
+- The most stable model (lowest output variance)
+- The most certain model (lowest entropy)
+
+This summary provides a concise, human-readable conclusion highlighting the best overall model based on multiple metrics.
+
+---
+
 
 ## System Architecture
 
@@ -95,6 +133,98 @@ Database (MongoDB Atlas)
  └─ Stores inference results
 ```
 ---
+## System Workflow
+
+```text
+┌──────────────────────────────┐
+│            User              │
+│  (Image / Dataset / Text)    │
+└─────────────┬────────────────┘
+              │
+              ▼
+┌──────────────────────────────┐
+│          Frontend            │
+│   Next.js + TypeScript       │
+│                              │
+│ 1. Select evaluation mode    │
+│    - Single Image            │
+│    - Dataset (Prebuilt/ZIP)  │
+│                              │
+│ 2. Upload input              │
+│                              │
+│ 3. Trigger inference / OCR   │
+└─────────────┬────────────────┘
+              │ REST API
+              ▼
+┌────────────────────────────────────┐
+│              Backend               │
+│        FastAPI + PyTorch           │
+│                                    │
+│ ┌──────────────┐                  │
+│ │ /run         │  Single Image    │
+│ │              │  Inference       │
+│ └──────┬───────┘                  │
+│        │                           │
+│ ┌──────▼────────────┐             │
+│ │ /run-dataset      │  Dataset    │
+│ │                   │  Evaluation │
+│ └──────┬────────────┘             │
+│        │                           │
+│ ┌──────▼────────────┐             │
+│ │ Image Preprocess  │             │
+│ │ - Grayscale       │             │
+│ │ - Resize (28x28)  │             │
+│ │ - Noise / Blur    │             │
+│ └──────┬────────────┘             │
+│        │                           │
+│ ┌──────▼────────────┐             │
+│ │ CNN Model Pool    │             │
+│ │ - Baseline        │             │
+│ │ - KD              │             │
+│ │ - Pruned          │             │
+│ │ - Quantized       │             │
+│ │ - WS              │             │
+│ └──────┬────────────┘             │
+│        │                           │
+│ ┌──────▼────────────┐             │
+│ │ Metric Computation│             │
+│ │ - Latency         │             │
+│ │ - Confidence      │             │
+│ │ - Entropy         │             │
+│ │ - Stability       │             │
+│ │ - RAM usage       │             │
+│ └──────┬────────────┘             │
+│        │                           │
+│ ┌──────▼────────────┐             │
+│ │ Aggregation       │             │
+│ │ (Dataset only)    │             │
+│ └──────┬────────────┘             │
+│        │                           │
+│ ┌──────▼────────────┐             │
+│ │ OCR Verification  │             │
+│ │ (/verify)         │             │
+│ └──────┬────────────┘             │
+│        │                           │
+│ ┌──────▼────────────┐             │
+│ │ Store Results     │             │
+│ │ + Metadata        │             │
+│ │ (MongoDB Atlas)   │             │
+│ └──────┬────────────┘             │
+└────────┼──────────────────────────┘
+         │
+         ▼
+┌──────────────────────────────┐
+│          Frontend            │
+│                              │
+│ 4. Visualize Results         │
+│    - Charts                  │
+│    - Single-model details    │
+│    - Overall summary         │
+│                              │
+│ 5. Show OCR verdict          │
+└──────────────────────────────┘
+```
+----
 ## Application Screenshots
 
 ### Image Upload Interface
@@ -380,6 +510,20 @@ To support non-expert users, the visualization layer provides:
 This design allows both technical and non-technical users to interpret results without requiring prior machine learning expertise.
 
 ---
+### Explainable and Human-Centered Design
+
+To support both technical and non-technical users, FinCheck emphasizes explainability in its visualization layer:
+
+- Each metric is accompanied by a brief explanation describing what it measures and why it matters.
+- Visual indicators clearly show whether higher or lower values are preferable.
+- The system automatically highlights the best-performing model for each metric.
+- Users can switch between:
+  - Comparative analysis (all models)
+  - Detailed inspection (single selected model)
+- An overall recommendation is generated based on inference efficiency and stability.
+
+These features enable users without prior machine learning expertise to interpret results confidently while still supporting in-depth expert analysis.
+---
 
 ## API Reference
 
@@ -454,6 +598,63 @@ The endpoint always returns JSON and never returns an empty response.
 ```
 
 ---
+
+## ARCHITECTURE
+```mathematica
+┌──────────────────────────────┐
+│          Frontend            │
+│   Next.js + TypeScript       │
+│                              │
+│ ┌─────────────────────────┐ │
+│ │ Image Upload / Dataset  │ │
+│ │ Selection UI            │ │
+│ └───────────┬─────────────┘ │
+│             │               │
+│ ┌───────────▼─────────────┐ │
+│ │ Inference Visualization │ │
+│ │  - Charts               │ │
+│ │  - Explanations         │ │
+│ │  - Model Ranking        │ │
+│ └───────────┬─────────────┘ │
+│             │               │
+│ ┌───────────▼─────────────┐ │
+│ │ OCR Verification UI     │ │
+│ └───────────┬─────────────┘ │
+└─────────────┼────────────────┘
+              │ REST API
+              ▼
+┌────────────────────────────────────┐
+│              Backend               │
+│        FastAPI + PyTorch           │
+│                                    │
+│ ┌──────────────┐   ┌────────────┐ │
+│ │ /run         │   │ /verify    │ │
+│ │ (Inference)  │   │ (OCR)      │ │
+│ └──────┬───────┘   └──────┬─────┘ │
+│        │                  │       │
+│ ┌──────▼────────────┐ ┌───▼─────┐ │
+│ │ CNN Model Pool     │ │ OCR     │ │
+│ │ - Baseline         │ │ Engine  │ │
+│ │ - KD               │ │ (Tesser)│ │
+│ │ - Pruned           │ └─────────┘ │
+│ │ - Quantized        │              │
+│ └──────┬────────────┘              │
+│        │ Metrics                     │
+│ ┌──────▼────────────┐              │
+│ │ Benchmark Engine  │              │
+│ │ - Latency         │              │
+│ │ - Entropy         │              │
+│ │ - Stability       │              │
+│ │ - RAM             │              │
+│ └──────┬────────────┘              │
+│        │                             │
+│ ┌──────▼────────────┐              │
+│ │ MongoDB Atlas     │              │
+│ │ (Results + Meta) │              │
+│ └──────────────────┘              │
+└────────────────────────────────────┘
+```
+
 ## Methodology
 
 ### Dataset and Preprocessing
@@ -486,6 +687,17 @@ Inference is performed under controlled and identical runtime conditions for all
 ### OCR Verification Pipeline
 
 To validate numeric user input, handwritten images are processed using Tesseract OCR with digit-only constraints. The OCR output is compared character-by-character with the user-typed input to detect mismatches, ambiguous characters, and length inconsistencies. This verification pipeline operates independently of the CNN inference process, ensuring a clear separation between recognition and validation.
+## Experimental Integrity and Reproducibility
+
+FinCheck is designed to support reproducible experimentation and fair model comparison:
+
+- All CNN models share an identical architecture; only optimization techniques differ.
+- Preprocessing pipelines are fixed and applied uniformly across all models.
+- Inference is performed under identical runtime conditions.
+- Dataset-level evaluations aggregate metrics to reduce variance from individual samples.
+- Docker-based deployment ensures deterministic execution across environments.
+
+These design decisions ensure that observed performance differences are attributable solely to optimization techniques rather than experimental artifacts.
 
 ### Deployment and Reproducibility
 
@@ -506,6 +718,12 @@ Key outcomes include:
 
 The system is suitable for academic evaluation, deployment benchmarking,
 and real-world numeric verification workflows.
+## Discussion
+
+The experimental results demonstrate that no single optimization technique dominates across all metrics. While some models achieve lower inference latency, others provide higher confidence or greater output stability. This highlights the importance of multi-metric evaluation when selecting models for deployment.
+
+The inclusion of robustness testing further reveals how optimized models behave under degraded input conditions, which is critical for real-world applications. The OCR-based verification pipeline complements CNN inference by addressing ambiguity in numeric input, reinforcing system reliability in security-sensitive scenarios.
+
 ## Target Users
 
 - Researchers evaluating model optimization techniques
@@ -515,4 +733,7 @@ and real-world numeric verification workflows.
 
 
 ![CodeQL](https://github.com/mukesh1352/fincheck-next/actions/workflows/codeql.yml/badge.svg)
-
+![Docker](https://img.shields.io/badge/docker-ready-blue)
+![TypeScript](https://img.shields.io/badge/typescript-strict-blue)
+![Reproducible](https://img.shields.io/badge/reproducible-yes-success)
+![License](https://img.shields.io/github/license/mukesh1352/fincheck?label=license&color=blue)

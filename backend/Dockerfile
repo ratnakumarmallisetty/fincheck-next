@@ -5,7 +5,8 @@ FROM python:3.12-slim
 # -------------------------
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PORT=8000
+    PORT=8000 \
+    TESSDATA_PREFIX=/usr/share/tesseract-ocr/4.00/tessdata
 
 WORKDIR /app
 
@@ -29,6 +30,9 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# 🔥 ENSURE pytesseract IS PRESENT (CRITICAL)
+RUN pip install --no-cache-dir pytesseract
+
 # -------------------------
 # Copy backend code
 # -------------------------
@@ -43,11 +47,12 @@ download()
 EOF
 
 # -------------------------
-# Sanity check (optional)
+# Sanity checks
 # -------------------------
 RUN python - <<EOF
-import os
-print("Model files:", os.listdir("model"))
+import pytesseract, os
+print("✅ pytesseract version:", pytesseract.get_tesseract_version())
+print("✅ Model files:", os.listdir("model"))
 EOF
 
 # -------------------------
@@ -58,4 +63,4 @@ EXPOSE 8000
 # -------------------------
 # Run server
 # -------------------------
-CMD exec uvicorn server:app --host 0.0.0.0 --port ${PORT}
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]

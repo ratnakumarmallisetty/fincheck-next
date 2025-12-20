@@ -2,73 +2,174 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
+import EvaluationModeSelector from "@/components/EvaluationModeSelector"
+import { PREBUILT_DATASETS } from "@/lib/datasets"
+
+type Mode = "SINGLE" | "DATASET"
+type DatasetSource = "PREBUILT" | "CUSTOM"
 
 export default function UploadPage() {
-  const [file, setFile] = useState<File | null>(null)
-  const [loading, setLoading] = useState(false)
   const router = useRouter()
 
-  async function submit() {
-    if (!file) return
+  const [mode, setMode] = useState<Mode>("SINGLE")
+  const [datasetSource, setDatasetSource] =
+    useState<DatasetSource>("PREBUILT")
+
+  const [selectedDataset, setSelectedDataset] =
+    useState<string>("MNIST_100")
+
+  const [file, setFile] = useState<File | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function runInference() {
     setLoading(true)
+    setError(null)
 
-    try {
-      const fd = new FormData()
-      fd.append("image", file)
+    const form = new FormData()
+    let endpoint = ""
 
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        body: fd,
-      })
-
-      if (!res.ok) {
-        const text = await res.text()
-        console.error("Upload failed:", text)
-        alert("Upload failed. Check backend logs.")
+    if (mode === "SINGLE") {
+      if (!file) {
+        setError("Please upload an image")
+        setLoading(false)
         return
       }
+      form.append("image", file)
+      endpoint = "/api/run"
+    } else {
+      endpoint = "/api/run-dataset"
 
-      const data = await res.json()
-      router.push(`/results/${data.id}`)
-    } catch (err) {
-      console.error(err)
-      alert("Something went wrong.")
-    } finally {
-      setLoading(false)
+      if (datasetSource === "CUSTOM") {
+        if (!file) {
+          setError("Please upload a ZIP file")
+          setLoading(false)
+          return
+        }
+        form.append("zip_file", file)
+      } else {
+        form.append("dataset_name", selectedDataset)
+      }
     }
+
+    const res = await fetch(endpoint, {
+      method: "POST",
+      body: form,
+    })
+
+    if (!res.ok) {
+      setError("Inference failed. Please try again.")
+      setLoading(false)
+      return
+    }
+
+    const json = await res.json()
+
+    // 🔑 ONLY EXPECT result id
+    const resultId = json.id || json.result_id
+
+    if (!resultId) {
+      setError("Invalid response from server")
+      setLoading(false)
+      return
+    }
+
+    // ✅ Redirect to results page
+    router.push(`/results/${resultId}`)
   }
 
   return (
-    <div className="min-h-screen bg-gradient from-gray-50 to-gray-100 flex items-center justify-center">
-      <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-lg space-y-6">
-        <h1 className="text-3xl font-bold text-gray-900 text-center">
-          Upload Image
-        </h1>
+    <div className="mx-auto max-w-5xl p-8 space-y-8">
+      <h1 className="text-3xl font-bold">Run Inference</h1>
 
-        <p className="text-sm text-gray-500 text-center">
-          Upload a handwritten digit image to run all models
-        </p>
+      <EvaluationModeSelector mode={mode} setMode={setMode} />
 
-        <label className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-xl p-6 cursor-pointer hover:border-black transition">
+      {/* ---------- SINGLE IMAGE MODE ---------- */}
+      {mode === "SINGLE" && (
+        <div className="space-y-2">
+          <p className="text-sm text-gray-600">
+            Upload a single handwritten digit image
+          </p>
           <input
             type="file"
-            className="hidden"
-            onChange={e => setFile(e.target.files?.[0] || null)}
+            accept="image/*"
+            onChange={(e) =>
+              setFile(e.target.files?.[0] || null)
+            }
           />
-          <span className="text-sm text-gray-600">
-            {file ? file.name : "Click to select an image"}
-          </span>
-        </label>
+        </div>
+      )}
 
-        <button
-          onClick={submit}
-          disabled={loading || !file}
-          className="w-full rounded-xl bg-black py-3 text-white font-semibold
-                     hover:bg-gray-800 disabled:opacity-50 transition"
-        >
-          {loading ? "Running Models..." : "Run Inference"}
-        </button>
-      </div>
+      {/* ---------- DATASET MODE ---------- */}
+      {mode === "DATASET" && (
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            Evaluate models on a dataset for comparative analysis
+          </p>
+
+          <div className="flex gap-6">
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                checked={datasetSource === "PREBUILT"}
+                onChange={() =>
+                  setDatasetSource("PREBUILT")
+                }
+              />
+              Prebuilt dataset
+            </label>
+
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                checked={datasetSource === "CUSTOM"}
+                onChange={() =>
+                  setDatasetSource("CUSTOM")
+                }
+              />
+              Custom ZIP upload
+            </label>
+          </div>
+
+          {datasetSource === "PREBUILT" && (
+            <select
+              value={selectedDataset}
+              onChange={(e) =>
+                setSelectedDataset(e.target.value)
+              }
+              className="rounded-lg border px-3 py-2"
+            >
+              {PREBUILT_DATASETS.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {datasetSource === "CUSTOM" && (
+            <input
+              type="file"
+              accept=".zip"
+              onChange={(e) =>
+                setFile(e.target.files?.[0] || null)
+              }
+            />
+          )}
+        </div>
+      )}
+
+      {error && (
+        <p className="text-sm text-red-600">{error}</p>
+      )}
+
+      <button
+        onClick={runInference}
+        disabled={loading}
+        className="rounded-lg bg-blue-600 px-5 py-2 text-white disabled:opacity-50"
+      >
+        {loading ? "Running…" : "Run Evaluation"}
+      </button>
     </div>
   )
 }
