@@ -37,6 +37,7 @@ export default function ResultPage() {
 
   const [doc, setDoc] = useState<ResultDoc | null>(null)
   const [loading, setLoading] = useState(true)
+  const [selectedModel, setSelectedModel] = useState("ALL")
 
   /* ---------------- FETCH ---------------- */
 
@@ -65,21 +66,18 @@ export default function ResultPage() {
 
       return {
         model,
-        confidence_percent:
-          typeof v.confidence_percent === "number"
-            ? v.confidence_percent
-            : 0,
-        latency_ms:
-          typeof v.latency_ms === "number" ? v.latency_ms : 0,
-        entropy:
-          typeof v.entropy === "number" ? v.entropy : 0,
-        stability:
-          typeof v.stability === "number" ? v.stability : 0,
-        ram_delta_mb:
-          typeof v.ram_mb === "number" ? v.ram_mb : 0,
+        confidence_percent: v.confidence_percent ?? 0,
+        latency_ms: v.latency_ms ?? 0,
+        entropy: v.entropy ?? 0,
+        stability: v.stability ?? 0,
+        ram_delta_mb: v.ram_mb ?? 0,
       }
     })
   }, [doc])
+
+  const selectedData = chartData.find(
+    (d) => d.model === selectedModel
+  )
 
   /* ---------------- UI STATES ---------------- */
 
@@ -103,7 +101,8 @@ export default function ResultPage() {
 
   return (
     <div className="mx-auto max-w-7xl p-8 space-y-12">
-      <header className="space-y-2">
+      {/* ---------- HEADER ---------- */}
+      <header className="space-y-3">
         <h1 className="text-3xl font-bold tracking-tight">
           Inference Results
         </h1>
@@ -111,14 +110,42 @@ export default function ResultPage() {
           Comparative analysis of optimized MNIST models
           using single-image web inference metrics.
         </p>
+
+        {/* MODEL SELECTOR */}
+        <select
+          value={selectedModel}
+          onChange={(e) => setSelectedModel(e.target.value)}
+          className="rounded-lg border px-3 py-2 text-sm"
+        >
+          <option value="ALL">Compare all models</option>
+          {MODEL_ORDER.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
       </header>
 
-      {/* 📊 Charts */}
-      {chartData.length > 0 && (
-        <ChartSection data={chartData} />
+      {/* ---------- COMPARISON MODE ---------- */}
+      {selectedModel === "ALL" && (
+        <ChartSection
+          data={chartData}
+          selectedModel={selectedModel}
+        />
       )}
 
-      {/* 📄 Raw Output */}
+      {/* ---------- SINGLE MODEL MODE ---------- */}
+      {selectedModel !== "ALL" && selectedData && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 animate-fade-in">
+          <MetricCard label="Latency (ms)" value={selectedData.latency_ms} />
+          <MetricCard label="Confidence (%)" value={selectedData.confidence_percent} />
+          <MetricCard label="Entropy" value={selectedData.entropy} />
+          <MetricCard label="Stability" value={selectedData.stability} />
+          <MetricCard label="RAM Usage (MB)" value={selectedData.ram_delta_mb} />
+        </div>
+      )}
+
+      {/* ---------- RAW OUTPUT (RESTORED) ---------- */}
       <div className="rounded-2xl border bg-gray-50 p-6">
         <h2 className="mb-3 text-lg font-semibold">
           Raw Model Output
@@ -127,6 +154,25 @@ export default function ResultPage() {
           {JSON.stringify(doc.data, null, 2)}
         </pre>
       </div>
+    </div>
+  )
+}
+
+/* ---------------- METRIC CARD ---------------- */
+
+function MetricCard({
+  label,
+  value,
+}: {
+  label: string
+  value: number
+}) {
+  return (
+    <div className="rounded-xl border bg-white p-5 shadow-sm">
+      <p className="text-xs text-gray-500">{label}</p>
+      <p className="mt-2 text-2xl font-semibold">
+        {value.toFixed(3)}
+      </p>
     </div>
   )
 }

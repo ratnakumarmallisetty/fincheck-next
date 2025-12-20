@@ -26,8 +26,7 @@ export default function GraphCard({
         </div>
 
         {bestLabel && (
-          <span className="shrink-0 rounded-full bg-green-100 px-3 py-1
-                           text-xs font-semibold text-green-700">
+          <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
             🏆 Best: {bestLabel}
           </span>
         )}

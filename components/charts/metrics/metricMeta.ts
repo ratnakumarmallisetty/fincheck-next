@@ -31,7 +31,7 @@ export const METRIC_META: Record<
   entropy: {
     label: "Prediction Entropy",
     description:
-      "Uncertainty of the output probability distribution. Lower values indicate more confident predictions.",
+      "Uncertainty of the output probability distribution. Lower is better.",
     higherIsBetter: false,
   },
 

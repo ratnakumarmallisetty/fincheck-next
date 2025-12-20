@@ -7,6 +7,7 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
+  Cell,
 } from "recharts"
 import GraphCard from "../GraphCard"
 import { ChartItem } from "./types"
@@ -15,9 +16,11 @@ import { METRIC_META } from "./metricMeta"
 export default function MetricBar({
   dataKey,
   data,
+  selectedModel,
 }: {
   dataKey: keyof ChartItem
   data: ChartItem[]
+  selectedModel: string
 }) {
   const meta = METRIC_META[dataKey]
 
@@ -48,7 +51,19 @@ export default function MetricBar({
           />
           <YAxis />
           <Tooltip />
-          <Bar dataKey={dataKey as string} />
+          <Bar dataKey={dataKey as string}>
+            {data.map((entry, index) => (
+              <Cell
+                key={index}
+                fill={
+                  selectedModel !== "ALL" &&
+                  entry.model === selectedModel
+                    ? "#22c55e"
+                    : "#60a5fa"
+                }
+              />
+            ))}
+          </Bar>
         </BarChart>
       </ResponsiveContainer>
     </GraphCard>
