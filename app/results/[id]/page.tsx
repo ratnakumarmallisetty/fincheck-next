@@ -28,25 +28,6 @@ type ResultDoc = {
   }
 }
 
-/* ---------------- OVERALL SUMMARY ---------------- */
-
-function getOverallSummary(data: ChartItem[]) {
-  if (data.length === 0) return null
-
-  const fastest = [...data].sort((a, b) => a.latency_ms - b.latency_ms)[0]
-  const confident = [...data].sort(
-    (a, b) => b.confidence_percent - a.confidence_percent
-  )[0]
-  const stable = [...data].sort(
-    (a, b) => a.stability - b.stability
-  )[0]
-  const certain = [...data].sort(
-    (a, b) => a.entropy - b.entropy
-  )[0]
-
-  return { fastest, confident, stable, certain }
-}
-
 /* ---------------- META NORMALIZATION ---------------- */
 
 function normalizeMeta(meta?: ResultDoc["meta"]) {
@@ -58,6 +39,47 @@ function normalizeMeta(meta?: ResultDoc["meta"]) {
   }
 }
 
+/* ---------------- DATASET-AWARE SCORING ---------------- */
+
+function scoreModel(m: ChartItem, datasetType?: string) {
+  if (!datasetType) {
+    // Single image → prioritize speed
+    return -m.latency_ms
+  }
+
+  if (
+    datasetType.includes("NOISY") ||
+    datasetType.includes("BLUR")
+  ) {
+    // Robustness-focused
+    return (
+      -2.0 * m.entropy -
+      2.0 * m.stability +
+      0.5 * m.confidence_percent
+    )
+  }
+
+  // Clean dataset
+  return (
+    m.confidence_percent -
+    m.entropy -
+    0.2 * m.latency_ms
+  )
+}
+
+/* ---------------- OVERALL SUMMARY ---------------- */
+
+function getOverallSummary(data: ChartItem[]) {
+  if (data.length === 0) return null
+
+  return {
+    fastest: [...data].sort((a, b) => a.latency_ms - b.latency_ms)[0],
+    confident: [...data].sort((a, b) => b.confidence_percent - a.confidence_percent)[0],
+    stable: [...data].sort((a, b) => a.stability - b.stability)[0],
+    certain: [...data].sort((a, b) => a.entropy - b.entropy)[0],
+  }
+}
+
 /* ==================================================== */
 
 export default function ResultPage() {
@@ -66,7 +88,7 @@ export default function ResultPage() {
   const [loading, setLoading] = useState(true)
   const [selectedModel, setSelectedModel] = useState("ALL")
 
-  /* ---------------- FETCH RESULT ---------------- */
+  /* ---------------- FETCH ---------------- */
 
   useEffect(() => {
     fetch(`/api/results/${id}`)
@@ -75,7 +97,7 @@ export default function ResultPage() {
       .finally(() => setLoading(false))
   }, [id])
 
-  /* ---------------- NORMALIZE METRICS ---------------- */
+  /* ---------------- NORMALIZE DATA ---------------- */
 
   const chartData: ChartItem[] = useMemo(() => {
     if (!doc) return []
@@ -84,21 +106,29 @@ export default function ResultPage() {
       const v = doc.data[model] ?? {}
       return {
         model,
-        confidence_percent: v.confidence_percent ?? v.avg_confidence ?? 0,
-        latency_ms: v.latency_ms ?? v.avg_latency_ms ?? 0,
-        entropy: v.entropy ?? v.avg_entropy ?? 0,
-        stability: v.stability ?? v.avg_stability ?? 0,
-        ram_delta_mb: v.ram_mb ?? v.avg_ram_mb ?? 0,
+        confidence_percent: v.confidence_percent ?? 0,
+        latency_ms: v.latency_ms ?? 0,
+        entropy: v.entropy ?? 0,
+        stability: v.stability ?? 0,
+        ram_delta_mb: v.ram_mb ?? 0,
       }
     })
   }, [doc])
 
+  const meta = normalizeMeta(doc?.meta)
+
+  /* ---------------- RECOMMENDATION ---------------- */
+
   const recommendedModel = useMemo(() => {
-    if (chartData.length === 0) return undefined
-    return [...chartData].sort(
-      (a, b) => a.latency_ms - b.latency_ms
-    )[0]?.model
-  }, [chartData])
+    if (!chartData.length) return undefined
+
+    return [...chartData]
+      .sort(
+        (a, b) =>
+          scoreModel(b, meta.dataset_type) -
+          scoreModel(a, meta.dataset_type)
+      )[0].model
+  }, [chartData, meta.dataset_type])
 
   const overall = useMemo(() => {
     return getOverallSummary(chartData)
@@ -114,14 +144,12 @@ export default function ResultPage() {
     return <p className="p-8 text-red-600">Failed to load result.</p>
   }
 
-  const meta = normalizeMeta(doc.meta)
-
   /* ===================== UI ===================== */
 
   return (
     <div className="mx-auto max-w-7xl p-8 space-y-10">
 
-      {/* 🧾 EVALUATION SUMMARY */}
+      {/* SUMMARY */}
       <div className="rounded-xl border bg-gray-50 p-5">
         <h2 className="text-sm font-semibold text-gray-700">
           Evaluation Summary
@@ -152,19 +180,20 @@ export default function ResultPage() {
         </div>
       </div>
 
-      {/* ✅ SYSTEM RECOMMENDATION */}
+      {/* RECOMMENDATION */}
       <div className="rounded-xl border bg-blue-50 p-5">
         <h2 className="font-semibold text-blue-800">
           System Recommendation
         </h2>
         <p className="mt-1 text-sm text-blue-700">
-          <strong>{recommendedModel}</strong> is recommended due to its
-          low inference latency while maintaining competitive confidence
-          under the evaluated conditions.
+          <strong>{recommendedModel}</strong> is recommended for{" "}
+          <strong>{meta.dataset_type ?? "this evaluation"}</strong>{" "}
+          based on dataset-aware performance criteria
+          (accuracy, robustness, and efficiency).
         </p>
       </div>
 
-      {/* 🔽 MODEL SELECTOR */}
+      {/* MODEL SELECTOR */}
       <div className="flex items-center gap-3">
         <label className="text-sm font-medium text-gray-600">
           View Mode:
@@ -181,25 +210,20 @@ export default function ResultPage() {
         </select>
       </div>
 
-      {/* 📊 COMPARISON MODE */}
+      {/* CHARTS */}
       {selectedModel === "ALL" && (
         <ChartSection data={chartData} selectedModel="ALL" />
       )}
 
-      {/* 🔍 SINGLE MODEL MODE */}
       {selectedModel !== "ALL" && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
           {chartData
             .filter((d) => d.model === selectedModel)
             .map((d) => (
-              <div
-                key={d.model}
-                className="rounded-xl border bg-white p-6 shadow-sm"
-              >
+              <div key={d.model} className="rounded-xl border bg-white p-6">
                 <h3 className="font-semibold mb-4">
                   Model: {d.model}
                 </h3>
-
                 <MetricRow label="Confidence (%)" value={d.confidence_percent.toFixed(2)} />
                 <MetricRow label="Latency (ms)" value={d.latency_ms.toFixed(3)} />
                 <MetricRow label="Entropy" value={d.entropy.toFixed(4)} />
@@ -210,59 +234,26 @@ export default function ResultPage() {
         </div>
       )}
 
-      {/* 📦 OVERALL PERFORMANCE SUMMARY */}
+      {/* OVERALL SUMMARY */}
       {overall && (
         <div className="rounded-2xl border bg-gray-50 p-6 space-y-4">
           <h2 className="text-lg font-semibold text-gray-800">
             Overall Performance Summary
           </h2>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-            <SummaryRow
-              label="Fastest Model"
-              model={overall.fastest.model}
-              value={`${overall.fastest.latency_ms.toFixed(3)} ms`}
-            />
-            <SummaryRow
-              label="Most Confident Model"
-              model={overall.confident.model}
-              value={`${overall.confident.confidence_percent.toFixed(2)} %`}
-            />
-            <SummaryRow
-              label="Most Stable Model"
-              model={overall.stable.model}
-              value={overall.stable.stability.toFixed(4)}
-            />
-            <SummaryRow
-              label="Lowest Uncertainty Model"
-              model={overall.certain.model}
-              value={overall.certain.entropy.toFixed(4)}
-            />
-          </div>
-
-          <div className="rounded-lg bg-white p-4 text-sm text-gray-700">
-            <strong>Conclusion:</strong>{" "}
-            While individual models excel in specific metrics,
-            <strong> {recommendedModel}</strong> offers the most balanced
-            trade-off between speed, confidence, and stability under the
-            evaluated conditions, making it the most suitable overall choice.
-          </div>
+          <SummaryRow label="Fastest Model" model={overall.fastest.model} value={`${overall.fastest.latency_ms.toFixed(3)} ms`} />
+          <SummaryRow label="Most Confident Model" model={overall.confident.model} value={`${overall.confident.confidence_percent.toFixed(2)} %`} />
+          <SummaryRow label="Most Stable Model" model={overall.stable.model} value={overall.stable.stability.toFixed(4)} />
+          <SummaryRow label="Lowest Uncertainty Model" model={overall.certain.model} value={overall.certain.entropy.toFixed(4)} />
         </div>
       )}
-
     </div>
   )
 }
 
-/* ---------------- METRIC ROW ---------------- */
+/* ---------------- HELPERS ---------------- */
 
-function MetricRow({
-  label,
-  value,
-}: {
-  label: string
-  value: string
-}) {
+function MetricRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between text-sm py-1">
       <span className="text-gray-500">{label}</span>
@@ -271,17 +262,7 @@ function MetricRow({
   )
 }
 
-/* ---------------- SUMMARY ROW ---------------- */
-
-function SummaryRow({
-  label,
-  model,
-  value,
-}: {
-  label: string
-  model: string
-  value: string
-}) {
+function SummaryRow({ label, model, value }: { label: string; model: string; value: string }) {
   return (
     <div className="flex justify-between rounded-lg bg-white px-4 py-2 border">
       <span className="text-gray-600">{label}</span>

@@ -21,20 +21,33 @@ export async function POST(req: Request) {
       body: formData,
     })
 
-    if (!r.ok) {
-      const text = await r.text()
-      console.error("Backend /run-dataset failed:", text)
+    const text = await r.text()
+
+    let data: any
+    try {
+      data = JSON.parse(text)
+    } catch {
+      console.error("Non-JSON backend response:", text)
       return NextResponse.json(
-        { error: "Backend dataset inference failed" },
+        { error: "Invalid response from inference backend" },
         { status: 500 }
       )
     }
 
-    const data = await r.json()
-
-    if (!data || !data.models) {
+    // ❌ Backend-level error (logical error, not crash)
+    if (data?.error) {
+      console.error("Backend dataset error:", data.error)
       return NextResponse.json(
-        { error: "Invalid backend response" },
+        { error: data.error },
+        { status: 400 } // important: NOT 500
+      )
+    }
+
+    // ❌ Unexpected shape
+    if (!data.models) {
+      console.error("Backend returned unexpected payload:", data)
+      return NextResponse.json(
+        { error: "Malformed inference result from backend" },
         { status: 500 }
       )
     }
@@ -55,6 +68,7 @@ export async function POST(req: Request) {
     })
 
     return NextResponse.json({ id: result.insertedId })
+
   } catch (err) {
     console.error("run-dataset API error:", err)
     return NextResponse.json(
