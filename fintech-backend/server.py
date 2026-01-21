@@ -1,33 +1,33 @@
-import time
-import random
-import io
-import torch
+import cv2
 import numpy as np
+import torch
 from pathlib import Path
-from typing import Optional
-
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
-
+import torchvision.transforms as transforms
+from scipy import ndimage
+import io
+import random
+import time
 import torchvision.transforms as transforms
 from torchvision.datasets import MNIST
 from torchvision.transforms import GaussianBlur
 
 from model_def import MNISTCNN
 
-# ==================================================
-# GLOBAL TORCH CONFIG
-# ==================================================
+# =========================
+# TORCH CONFIG
+# =========================
 torch.set_grad_enabled(False)
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
 
-# ==================================================
-# APP SETUP
-# ==================================================
+# =========================
+# APP
+# =========================
 app = FastAPI()
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -38,7 +38,6 @@ app.add_middleware(
 BASE_DIR = Path(__file__).resolve().parent
 MODEL_DIR = BASE_DIR / "model"
 DATA_DIR = BASE_DIR / "data"
-
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 MODEL_FILES = [
@@ -50,18 +49,11 @@ MODEL_FILES = [
     "ws_mnist.pth",
 ]
 
-# ==================================================
-# SEED
-# ==================================================
-def set_seed(seed: int):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+# =========================
+# LOAD KD MNIST MODEL
+# =========================
+MODEL = None
 
-# ==================================================
-# MODEL LOADING
-# ==================================================
 MNIST_MODELS = {}
 
 @app.on_event("startup")
@@ -76,6 +68,112 @@ def load_models():
         MNIST_MODELS[f] = model
     print("✅ MNIST models loaded")
 
+
+def set_seed(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+# =========================
+# TRANSFORM
+# =========================
+TRANSFORM = transforms.Compose([
+    transforms.ToTensor(),  # already 28x28
+])
+
+# =========================
+# CLEAN IMAGE (CHEQUE SAFE)
+# =========================
+def clean_image(img: Image.Image):
+    img = np.array(img.convert("L"))
+
+    _, img = cv2.threshold(
+        img, 0, 255,
+        cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+    )
+
+    return img
+
+# =========================
+# MNIST NORMALIZATION (CRITICAL)
+# =========================
+def normalize_mnist_digit(digit_img):
+    # digit_img is binary, white digit on black background
+
+    # 1️⃣ Crop tight bounding box
+    coords = cv2.findNonZero(digit_img)
+    if coords is None:
+        return None
+
+    x, y, w, h = cv2.boundingRect(coords)
+    digit_img = digit_img[y:y+h, x:x+w]
+
+    # 2️⃣ Resize to 20x20
+    digit_img = cv2.resize(digit_img, (20, 20), interpolation=cv2.INTER_AREA)
+
+    # 3️⃣ Place in 28x28 canvas
+    canvas = np.zeros((28, 28), dtype=np.uint8)
+    canvas[4:24, 4:24] = digit_img
+
+    # 4️⃣ Center-of-mass shift (CRITICAL)
+    cy, cx = ndimage.center_of_mass(canvas)
+    shift_x = int(round(14 - cx))
+    shift_y = int(round(14 - cy))
+
+    canvas = ndimage.shift(
+        canvas,
+        shift=(shift_y, shift_x),
+        mode="constant",
+        cval=0
+    )
+
+    return Image.fromarray(canvas.astype(np.uint8))
+
+# =========================
+# SEGMENT DIGITS (OPENCV)
+# =========================
+def segment_digits(img):
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
+        img, connectivity=8
+    )
+
+    digits = []
+    for i in range(1, num_labels):  # skip background
+        x, y, w, h, area = stats[i]
+
+        if area < 80 or w < 8 or h < 15:
+            continue
+
+        digit = img[y:y+h, x:x+w]
+        digits.append((x, digit))
+
+    digits.sort(key=lambda d: d[0])
+    return [d[1] for d in digits]
+
+# =========================
+# MNIST INFERENCE
+# =========================
+@torch.inference_mode()
+def classify_digit(img):
+    model = MNIST_MODELS["kd_mnist.pth"]  # ✅ explicit
+
+    tensor = TRANSFORM(img).unsqueeze(0).to(DEVICE)
+    probs = torch.softmax(model(tensor), dim=1)[0]
+
+    top = torch.topk(probs, 3)
+    return [
+        {
+            "digit": int(d),
+            "confidence": round(float(c * 100), 2)
+        }
+        for d, c in zip(top.indices.cpu(), top.values.cpu())
+    ]
+
+
+# =========================
+# API
+# =========================
 # ==================================================
 # TRANSFORMS
 # ==================================================
@@ -264,3 +362,57 @@ async def verify(image: UploadFile = File(...), raw_text: str = Form(...)):
             else "One or more characters differ between typed text and OCR output."
         ),
     }
+@app.post("/verify-digit-only")
+async def verify_digit_only(image: UploadFile = File(...)):
+    try:
+        raw = Image.open(image.file)
+        cleaned = clean_image(raw)
+        digit_imgs = segment_digits(cleaned)
+
+        if not digit_imgs:
+            return {"verdict": "INVALID_INPUT", "reason": "No digits detected"}
+
+        analysis = []
+        final_digits = []
+        verdict = "VALID"
+
+        for i, dimg in enumerate(digit_imgs):
+            mnist_img = normalize_mnist_digit(dimg)
+            if mnist_img is None:
+                verdict = "INVALID"
+                analysis.append({
+                    "position": i + 1,
+                    "status": "INVALID",
+                    "reason": "Empty digit"
+                })
+                continue
+
+            preds = classify_digit(mnist_img)
+            best = preds[0]
+
+            status = "VALID"
+            if best["confidence"] < 70:
+                status = "INVALID"
+                verdict = "INVALID"
+            elif best["confidence"] < 90:
+                status = "AMBIGUOUS"
+                verdict = "AMBIGUOUS"
+
+            analysis.append({
+                "position": i + 1,
+                "predicted": str(best["digit"]),
+                "confidence": best["confidence"],
+                "status": status,
+                "possible_values": [p["digit"] for p in preds]
+            })
+
+            final_digits.append(str(best["digit"]))
+
+        return {
+            "verdict": verdict,
+            "digits": "".join(final_digits),
+            "analysis": analysis
+        }
+
+    except Exception as e:
+        return {"verdict": "ERROR", "message": str(e)}
