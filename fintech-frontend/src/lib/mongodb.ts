@@ -1,25 +1,35 @@
 import { MongoClient, Db } from "mongodb";
 
-const uri = process.env.MONGODB_URI!;
+const uri = process.env.MONGODB_URI;
+
 if (!uri) {
-  throw new Error("❌ Missing MONGODB_URI");
+  throw new Error("❌ Please define MONGODB_URI in .env.local");
 }
 
-let client: MongoClient;
-let db: Db;
+// After the guard above, TypeScript now knows `uri` is a string
+const MONGODB_URI: string = uri;
 
-/**
- * Connect once and reuse
- */
+let cachedClient: MongoClient | null = null;
+let cachedDb: Db | null = null;
+
 export async function connectMongo(): Promise<Db> {
-  if (db) return db;
+  if (cachedDb) return cachedDb;
 
-  client = new MongoClient(uri);
-  await client.connect();
+  const client =
+    cachedClient ??
+    new MongoClient(MONGODB_URI, {
+      maxPoolSize: 10,
+    });
 
-  db = client.db("fintech-auth");
+  if (!cachedClient) {
+    cachedClient = await client.connect();
+  }
 
-  console.log("✅ MongoDB connected");
+  cachedDb = cachedClient.db("fintech-auth");
 
-  return db;
+  if (process.env.NODE_ENV === "development") {
+    console.log("MongoDB connected");
+  }
+
+  return cachedDb;
 }

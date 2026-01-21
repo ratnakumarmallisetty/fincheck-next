@@ -1,5 +1,6 @@
 "use client";
 
+import BankingDemoPage from "@/app/banking-demo/page";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -9,7 +10,7 @@ export default function Slider() {
   const tabs = [
     { label: "Upload", href: "/upload" },
     { label: "Results", href: "/results" },
-    { label: "Verify Image", href: "/verify" },
+    { label: "Verify Image", href: "/banking-demo" }
   ];
 
   return (
