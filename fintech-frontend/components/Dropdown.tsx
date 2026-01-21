@@ -10,7 +10,6 @@ export default function Dropdown() {
   const { data: session, isPending } = authClient.useSession();
   const router = useRouter();
 
-  // ✅ Ensure client-only rendering
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -23,7 +22,6 @@ export default function Dropdown() {
     });
   };
 
-  // ⛔ Prevent hydration mismatch
   if (!mounted || isPending) return null;
 
   const isLoggedIn = !!session;
