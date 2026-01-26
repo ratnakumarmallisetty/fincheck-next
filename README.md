@@ -15,25 +15,30 @@ Unlike conventional OCR systems that *always output a digit*, **Fincheck is expl
 > **Core Principle**  
 > *In financial systems, a wrong prediction is more dangerous than no prediction.*
 
-Fincheck therefore prioritizes **abstention, uncertainty detection, and auditability** over raw accuracy.
+Instead of maximizing accuracy at all costs, Fincheck prioritizes:
+
+- Risk minimization
+- Uncertainty exposure
+- Safe abstention
+- Human-in-the-loop verification
 
 ---
 
 ## 2. Problem Statement
 
-Traditional OCR and digit-recognition pipelines:
+Traditional OCR and digit-recognition systems:
 
 - Optimize for **top-1 accuracy**
-- Force a prediction even for ambiguous or degraded inputs
+- Force predictions on ambiguous inputs
 - Hide uncertainty from downstream systems
 
-In financial workflows (cheques, account numbers, transaction amounts):
+In financial workflows (cheques, account numbers, amounts):
 
 - Silent misclassification → **monetary loss**
 - Ambiguous digits (`3 ↔ 5`, `1 ↔ 7`, `0 ↔ 6`) → **high risk**
-- Lack of confidence signals → **no human intervention**
+- No confidence signal → **no human review**
 
-**Fincheck addresses this gap** by modeling **confidence, entropy, and instability**, and by explicitly refusing unsafe predictions.
+**Fincheck addresses this gap** by explicitly modeling **confidence, entropy, and instability**, and by rejecting unsafe predictions.
 
 ---
 
@@ -42,7 +47,7 @@ In financial workflows (cheques, account numbers, transaction amounts):
 ### 3.1 Image-Only Digit Validation (No OCR Dependency)
 
 - Accepts **handwritten digit images**
-- Works with **scans, camera photos, noisy inputs**
+- Works with **scans, photos, noisy inputs**
 - Handles **single or multi-digit sequences**
 - No typed text required
 
@@ -53,12 +58,12 @@ In financial workflows (cheques, account numbers, transaction amounts):
 Each digit is classified into one of three states:
 
 | State | Meaning |
-|-----|-------|
+|-----|--------|
 | **VALID** | High confidence (≥ 90%), safe for automation |
 | **AMBIGUOUS** | Medium confidence (70–90%), human review required |
 | **INVALID** | Low confidence (< 70%) or out-of-distribution |
 
-This prevents unsafe downstream automation.
+This prevents unsafe automation in financial pipelines.
 
 ---
 
@@ -71,7 +76,7 @@ For every digit position, Fincheck reports:
 - Confidence score (%)
 - Top-3 plausible alternatives
 
-This enables **manual verification, audit trails, and dispute resolution**.
+This enables **auditability, dispute resolution, and human verification**.
 
 ---
 
@@ -81,11 +86,11 @@ MNIST is **not** used to “recognize cheques”.
 
 It is used as a **digit shape validity prior**:
 
-- MNIST models learn **canonical digit manifolds**
-- Inputs far from this manifold → high entropy, low confidence
-- This allows **rejection instead of forced prediction**
+- MNIST models learn **canonical handwritten digit manifolds**
+- Inputs far from this manifold → low confidence, high entropy
+- Enables **rejection instead of forced prediction**
 
-> Fincheck uses MNIST as a *risk filter*, not an OCR engine.
+> MNIST acts as a *risk filter*, not an OCR engine.
 
 ---
 
@@ -113,77 +118,127 @@ VALID / AMBIGUOUS / INVALID Verdict
 
 ---
 
-## 6. Benchmarking Philosophy
+## 6. Digit Segmentation Module (Critical Component)
+
+Segmentation is a **first-class risk control stage** in Fincheck.
+
+A perfect classifier is useless if digits are **incorrectly segmented**.
+
+---
+
+### Why Segmentation Matters in Cheques
+
+Real cheque images contain:
+
+* Touching or overlapping digits
+* Broken ink strokes
+* Background noise
+* Irregular spacing
+
+Segmentation errors can cause:
+
+* Digit merging (`11 → 1`)
+* Digit splitting (`8 → 0 + 0`)
+* Missing or extra digits
+
+In finance, these are **catastrophic failures**.
+
+---
+
+### Segmentation Pipeline
+
+```text
+Input Image
+   ↓
+Grayscale Conversion
+   ↓
+Stroke Enhancement (Morphological Close)
+   ↓
+Otsu Thresholding + Inversion
+   ↓
+Connected Components (8-connectivity)
+   ↓
+Geometric Filtering (Area, Width, Height)
+   ↓
+Left-to-Right Ordering
+```
+
+---
+
+### Conservative Design Choices
+
+* Small or thin components are **discarded**
+* Borderline shapes are **rejected**, not guessed
+* Ordering assumes **left-to-right digits only**
+
+> Segmentation failure is treated as a **risk signal**, not an exception.
+
+---
+
+### Why Not Deep Learning Segmentation?
+
+Fincheck intentionally avoids neural segmentation because:
+
+* Silent hallucinations are common
+* Large labeled cheque datasets are required
+* Failure modes are opaque
+* Hard to audit
+
+Rule-based segmentation provides **determinism, transparency, and safety**.
+
+---
+
+## 7. Benchmarking Philosophy
 
 ### Why Accuracy Alone Is Insufficient
 
-In fintech systems:
+In fintech:
 
-* **99% accuracy with 1% silent errors is unacceptable**
+* 99% accuracy with 1% silent errors is unacceptable
 * A wrong digit is worse than a rejected digit
-* Confidence calibration matters more than raw accuracy
 
-Therefore, Fincheck benchmarks models using:
-
-* **Confidence**
-* **Entropy**
-* **Stability**
-* **Latency**
-* **Robustness under noise**
+Therefore, Fincheck benchmarks models using **risk-oriented metrics**, not accuracy alone.
 
 ---
 
-## 7. Benchmarked Models
+## 8. Benchmarked Models
 
-Fincheck evaluates multiple MNIST CNN variants:
-
-| Model                 | Description               |
-| --------------------- | ------------------------- |
-| `baseline_mnist.pth`  | Standard CNN              |
-| `kd_mnist.pth`        | Knowledge-distilled model |
-| `lrf_mnist.pth`       | Low-rank factorized model |
-| `pruned_mnist.pth`    | Weight-pruned model       |
-| `quantized_mnist.pth` | Quantized inference       |
-| `ws_mnist.pth`        | Weight-shared model       |
-
-This allows **trade-off analysis** between speed, confidence, and robustness.
+| Model                 | Description         |
+| --------------------- | ------------------- |
+| `baseline_mnist.pth`  | Standard CNN        |
+| `kd_mnist.pth`        | Knowledge-distilled |
+| `lrf_mnist.pth`       | Low-rank factorized |
+| `pruned_mnist.pth`    | Weight-pruned       |
+| `quantized_mnist.pth` | Quantized inference |
+| `ws_mnist.pth`        | Weight-shared       |
 
 ---
 
-## 8. Benchmark Metrics Explained
+## 9. Benchmark Metrics Explained
 
-### 8.1 Confidence (%)
+### Confidence (%)
 
 * Mean max softmax probability
-* Indicates **how sure the model is**
-* Low confidence → unsafe prediction
+* Measures **certainty**
 
----
+### Entropy
 
-### 8.2 Entropy
-
-* Measures **prediction uncertainty**
+* Measures **uncertainty**
 * High entropy → ambiguous digit
-* Used to trigger **AMBIGUOUS / INVALID**
+
+### Stability
+
+* Logit standard deviation
+* Measures **numerical consistency**
+
+### Latency (ms)
+
+* Inference time per image
+* Important for real-time validation
 
 ---
 
-### 8.3 Stability
-
-* Standard deviation of logits
-* Measures **numerical and prediction consistency**
-* High instability → unreliable inference
-
----
-
-### 8.4 Latency (ms)
-
-* Average inference time per image
-* Important for **real-time validation**
-
----
-
-## 9. Benchmark Datasets
+## 10. Benchmark Datasets
 
 | Dataset                  | Purpose                   |
 | ------------------------ | ------------------------- |
@@ -191,29 +246,7 @@ This allows **trade-off analysis** between speed, confidence, and robustness.
 | `MNIST_NOISY_*`          | Sensor noise robustness   |
 | `MNIST_NOISY_BLUR_*`     | Scan + camera degradation |
 
-Noise and blur simulate **real cheque acquisition conditions**.
-
----
-
-## 10. Example Benchmark Output
-
-```json
-{
-  "kd_mnist.pth": {
-    "latency_mean": 1.12,
-    "confidence_mean": 97.34,
-    "entropy_mean": 0.0812,
-    "stability_mean": 1.4321
-  }
-}
-```
-
-Interpretation:
-
-* High confidence
-* Low entropy
-* Stable logits
-  → **Safe for financial usage**
+Noise simulates **real cheque acquisition conditions**.
 
 ---
 
@@ -221,17 +254,17 @@ Interpretation:
 
 ### Purpose
 
-Image-only cheque digit validation with **no OCR fallback**.
+Fully automated **image-only cheque digit validation**.
 
 ### Pipeline
 
-1. Image cleaning and binarization
+1. Image cleaning
 2. Digit segmentation
 3. MNIST normalization
-4. Top-3 digit prediction
-5. Confidence-based decision
+4. Top-3 prediction
+5. Confidence-based verdict
 
-### Output Example
+### Example Output
 
 ```json
 {
@@ -249,56 +282,105 @@ Image-only cheque digit validation with **no OCR fallback**.
 }
 ```
 
-This endpoint is designed for **automated cheque pipelines**.
-
 ---
 
-## 12. `/verify` Endpoint (OCR + Typed Text Validation)
+## 12. `/verify` Endpoint (OCR + Typed Text)
 
 ### Purpose
 
-Cross-check **user-entered digits vs OCR output**.
+Detect **human data-entry errors**.
 
 ### Use Case
 
-* User manually enters cheque number or amount
-* OCR extracts digits from image
+* User types cheque number or amount
+* OCR extracts digits
 * System flags mismatches
 
 ### Output
 
-* Exact mismatch positions
+* Mismatch positions
 * Typed vs OCR value
 * Final verdict
-
-This prevents **human data entry errors**.
 
 ---
 
 ## 13. Why Two Verification Modes Exist
 
-| Mode                 | When to Use                     |
-| -------------------- | ------------------------------- |
-| `/verify-digit-only` | Full automation, no typed input |
-| `/verify`            | Human-assisted workflows        |
+| Mode                 | Use Case                 |
+| -------------------- | ------------------------ |
+| `/verify-digit-only` | Automated pipelines      |
+| `/verify`            | Human-assisted workflows |
 
 This mirrors **real banking systems**, not demos.
 
 ---
 
-## 14. Evaluation Philosophy
+## 14. Tech Stack
 
-Fincheck explicitly chooses:
+### Frontend
 
-* **Rejection over risky prediction**
-* **Explainability over opacity**
-* **Confidence over accuracy**
-* **Auditability over convenience**
+* Next.js (App Router)
+* TypeScript
+* Tailwind CSS
+* Bun
 
-This makes it suitable for **real-world fintech workflows**, not just ML benchmarks.
+### Backend
+
+* FastAPI
+* PyTorch
+* OpenCV
+* NumPy / SciPy
+* PIL
+* Torchvision
+* Tesseract (only for `/verify`)
 
 ---
 
-## 15. License
+## 15. Installation & Running
+
+### Clone
+
+```bash
+git clone <YOUR_REPO_URL>
+cd fincheck
+```
+
+### Backend
+
+```bash
+cd fintech-backend
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+pip install scipy
+python download_models.py
+uvicorn server:app --port 8000
+```
+
+### Frontend
+
+```bash
+cd fintech-frontend
+bun install
+bun run dev
+```
+
+---
+
+## 16. Evaluation Philosophy (Summary)
+
+Fincheck explicitly prioritizes:
+
+* Rejection over risky prediction
+* Explainability over opacity
+* Confidence over accuracy
+* Auditability over convenience
+
+This makes it suitable for **real-world financial systems**, not just ML benchmarks.
+
+---
+
+## 17. License
 
 For **academic, research, and demonstration purposes only**.
+```
