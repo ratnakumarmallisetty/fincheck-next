@@ -24,3 +24,14 @@ public/uploads/
 
 # OS
 .DS_Store
+
+# Model checkpoints
+*.pth
+
+# Datasets
+data/
+**/data/
+
+# CIFAR-10 archives
+cifar-10-python.tar.gz
+
