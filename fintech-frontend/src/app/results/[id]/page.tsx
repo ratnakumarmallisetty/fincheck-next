@@ -248,7 +248,7 @@ export default function ResultPage() {
       )}
 
       {/* ===== Confusion Matrices ===== */}
-      {meta.evaluation_type === "DATASET" && selectedModel === "ALL" && (
+      { selectedModel === "ALL" && (
         <div className="space-y-8">
           {confusionMatrices.map((m) => (
             <ConfusionMatrix key={m.model} data={m} />
@@ -256,7 +256,7 @@ export default function ResultPage() {
         </div>
       )}
 
-      {meta.evaluation_type === "DATASET" && selectedModelData && (
+      { selectedModelData && (
         <ConfusionMatrix
           data={
             confusionMatrices.find(
