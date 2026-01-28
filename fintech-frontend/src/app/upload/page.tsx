@@ -8,7 +8,7 @@ import { PREBUILT_DATASETS } from "@/lib/dataset"
 type Mode = "SINGLE" | "DATASET"
 type DatasetSource = "PREBUILT" | "CUSTOM"
 
-export default function UploadPage() {
+export default function ConMatPage() {
   const router = useRouter()
 
   const [mode, setMode] = useState<Mode>("SINGLE")
@@ -17,6 +17,8 @@ export default function UploadPage() {
 
   const [selectedDataset, setSelectedDataset] =
     useState<string>("MNIST_100")
+
+  const [selectedDigit, setSelectedDigit] = useState<number>(0)
 
   const [file, setFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
@@ -36,6 +38,7 @@ export default function UploadPage() {
         return
       }
       form.append("image", file)
+      form.append("expected_digit", selectedDigit.toString())
       endpoint = "/api/run"
     } else {
       endpoint = "/api/run-dataset"
@@ -65,7 +68,6 @@ export default function UploadPage() {
 
     const json = await res.json()
 
-    // 🔑 ONLY EXPECT result id
     const resultId = json.id || json.result_id
 
     if (!resultId) {
@@ -74,7 +76,6 @@ export default function UploadPage() {
       return
     }
 
-    // ✅ Redirect to results page
     router.push(`/results/${resultId}`)
   }
 
@@ -86,17 +87,42 @@ export default function UploadPage() {
 
       {/* ---------- SINGLE IMAGE MODE ---------- */}
       {mode === "SINGLE" && (
-        <div className="space-y-2">
-          <p className="text-sm text-gray-600">
-            Upload a single handwritten digit image
-          </p>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) =>
-              setFile(e.target.files?.[0] || null)
-            }
-          />
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700">
+              Expected Digit
+            </label>
+            <select
+              value={selectedDigit}
+              onChange={(e) =>
+                setSelectedDigit(Number(e.target.value))
+              }
+              className="rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((digit) => (
+                <option key={digit} value={digit}>
+                  {digit}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700">
+              Upload Image
+            </label>
+            <p className="text-sm text-gray-600">
+              Upload a single handwritten digit image
+            </p>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) =>
+                setFile(e.target.files?.[0] || null)
+              }
+              className="block w-full text-sm text-gray-500 file:mr-4 file:rounded-lg file:border-0 file:bg-blue-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-blue-700 hover:file:bg-blue-100"
+            />
+          </div>
         </div>
       )}
 

@@ -6,13 +6,22 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
-    // ✅ DO NOT re-wrap the file
-    const formData = await req.formData();
+    const incomingForm = await req.formData();
 
-    const file = formData.get("image");
-    if (!(file instanceof File)) {
+    // ---------- Extract fields ----------
+    const image = incomingForm.get("image");
+    const expectedDigit = incomingForm.get("expected_digit");
+
+    if (!(image instanceof File)) {
       return NextResponse.json(
         { error: "No image provided" },
+        { status: 400 }
+      );
+    }
+
+    if (expectedDigit === null) {
+      return NextResponse.json(
+        { error: "Expected digit not provided" },
         { status: 400 }
       );
     }
@@ -26,10 +35,18 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ Forward multipart stream directly
+    // ---------- Rebuild FormData for backend ----------
+    const forwardForm = new FormData();
+    forwardForm.append("image", image);
+    forwardForm.append(
+      "expected_digit",
+      expectedDigit.toString()
+    );
+
+    // ---------- Forward to FastAPI ----------
     const r = await fetch(`${API_URL}/run`, {
       method: "POST",
-      body: formData,
+      body: forwardForm,
     });
 
     const text = await r.text();
@@ -44,17 +61,24 @@ export async function POST(req: Request) {
 
     const data = JSON.parse(text);
 
+    // ---------- Store in Mongo ----------
     const db = await connectMongo();
-    const result = await db.collection("model_results").insertOne({
-      data,
-      meta: {
-        evaluation_type: "SINGLE",
-        source: "IMAGE_UPLOAD",
-      },
-      createdAt: new Date(),
+    const result = await db
+      .collection("model_results")
+      .insertOne({
+        data,
+        meta: {
+          evaluation_type: "SINGLE",
+          source: "IMAGE_UPLOAD",
+          expected_digit: Number(expectedDigit),
+        },
+        createdAt: new Date(),
+      });
+
+    return NextResponse.json({
+      id: result.insertedId.toString(),
     });
 
-    return NextResponse.json({ id: result.insertedId });
   } catch (err) {
     console.error("run API error:", err);
     return NextResponse.json(
