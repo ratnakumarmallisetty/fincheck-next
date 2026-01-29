@@ -7,7 +7,6 @@ import type { ChartItem } from "../../../../components/metrics/types"
 import { ConfusionMatrix } from "../../../../components/confusion-matrix"
 import type { ConfusionMatrixModel } from "../../../../components/confusion-matrix"
 
-
 /* ================= CONSTANTS ================= */
 
 const MODEL_ORDER = [
@@ -18,6 +17,8 @@ const MODEL_ORDER = [
   "quantized_mnist.pth",
   "ws_mnist.pth",
 ]
+
+const SAFE_THRESHOLD = 0.15
 
 /* ================= TYPES ================= */
 
@@ -44,34 +45,24 @@ function normalizeMeta(meta?: ResultDoc["meta"]) {
 
 function scoreModel(m: ChartItem, datasetType?: string) {
   if (!datasetType) return -m.latency_ms
-
   if (datasetType.includes("NOISY") || datasetType.includes("BLUR")) {
     return -2 * m.entropy - 2 * m.stability + 0.5 * m.confidence_percent
   }
-
   return m.confidence_percent - m.entropy - 0.2 * m.latency_ms
-}
-
-function getOverallSummary(data: ChartItem[]) {
-  if (!data.length) return null
-
-  return {
-    fastest: [...data].sort((a, b) => a.latency_ms - b.latency_ms)[0],
-    confident: [...data].sort((a, b) => b.confidence_percent - a.confidence_percent)[0],
-    stable: [...data].sort((a, b) => a.stability - b.stability)[0],
-    certain: [...data].sort((a, b) => a.entropy - b.entropy)[0],
-  }
 }
 
 /* ================= PAGE ================= */
 
 export default function ResultPage() {
   const { id } = useParams<{ id: string }>()
+
   const [doc, setDoc] = useState<ResultDoc | null>(null)
   const [loading, setLoading] = useState(true)
-  const [selectedModel, setSelectedModel] = useState("ALL")
 
-  /* -------- Fetch -------- */
+  const [selectedModel, setSelectedModel] = useState("ALL")
+  const [sortBy, setSortBy] = useState<
+    "latency" | "confidence" | "risk" | "balanced"
+  >("balanced")
 
   useEffect(() => {
     fetch(`/api/results/${id}`)
@@ -83,172 +74,167 @@ export default function ResultPage() {
   const meta = normalizeMeta(doc?.meta)
   const isNoisy = meta.dataset_type?.includes("NOISY")
 
-  /* -------- Normalize Data -------- */
+  /* ================= NORMALIZE CHART DATA ================= */
 
-  const chartData: ChartItem[] = useMemo(() => {
+  const chartData = useMemo(() => {
     if (!doc) return []
 
     return MODEL_ORDER.map((model) => {
-      const v = doc.data[model] ?? {}
+      const v = doc.data?.[model] ?? {}
 
       return {
         model,
-
         confidence_percent: isNoisy ? v.confidence_mean ?? 0 : v.confidence_percent ?? 0,
         confidence_std: isNoisy ? v.confidence_std ?? 0 : 0,
-
         latency_ms: isNoisy ? v.latency_mean ?? 0 : v.latency_ms ?? 0,
         latency_std: isNoisy ? v.latency_std ?? 0 : 0,
-
         entropy: isNoisy ? v.entropy_mean ?? 0 : v.entropy ?? 0,
         entropy_std: isNoisy ? v.entropy_std ?? 0 : 0,
-
         stability: isNoisy ? v.stability_mean ?? 0 : v.stability ?? 0,
         stability_std: isNoisy ? v.stability_std ?? 0 : 0,
-
         ram_delta_mb: v.ram_mb ?? 0,
+        risk_score: doc?.data?.[model]?.evaluation?.risk_score ?? 999,
       }
     })
   }, [doc, isNoisy])
+
+  /* ================= CONFUSION MATRICES ================= */
 
   const confusionMatrices = useMemo<ConfusionMatrixModel[]>(() => {
     if (!doc) return []
 
     return MODEL_ORDER.map((model) => {
       const evalData = doc.data?.[model]?.evaluation
-
       return {
         model,
         matrix: evalData?.confusion_matrix ?? [],
         FAR: evalData?.FAR,
         FRR: evalData?.FRR,
-        risk_score: evalData?.risk_score
+        risk_score: evalData?.risk_score,
       }
     }).filter((m) => m.matrix.length > 0)
   }, [doc])
 
-  /* -------- Best Model -------- */
+  /* ================= SORTING ================= */
 
-  const recommendedModel = useMemo(() => {
-    if (!chartData.length) return undefined
-    return [...chartData].sort(
-      (a, b) => scoreModel(b, meta.dataset_type) - scoreModel(a, meta.dataset_type)
-    )[0].model
-  }, [chartData, meta.dataset_type])
+  const sortedChartData = useMemo(() => {
+    const arr = [...chartData]
 
-  const selectedModelData = useMemo(() => {
-    if (selectedModel === "ALL") return null
-    return chartData.find((m) => m.model === selectedModel) ?? null
-  }, [selectedModel, chartData])
+    if (sortBy === "latency")
+      return arr.sort((a, b) => a.latency_ms - b.latency_ms)
 
-  const overall = useMemo(() => getOverallSummary(chartData), [chartData])
+    if (sortBy === "confidence")
+      return arr.sort((a, b) => b.confidence_percent - a.confidence_percent)
 
-  /* -------- UI States -------- */
+    if (sortBy === "risk")
+      return arr.sort((a, b) => a.risk_score - b.risk_score)
 
-  if (loading) return <p className="p-8 text-gray-500">Loading results…</p>
-  if (!doc) return <p className="p-8 text-red-600">Failed to load result.</p>
+    return arr.sort(
+      (a, b) =>
+        scoreModel(b, meta.dataset_type) -
+        scoreModel(a, meta.dataset_type)
+    )
+  }, [chartData, sortBy, meta.dataset_type])
+
+  /* ================= SPECIAL PICKS ================= */
+
+  const safestModel = [...chartData].sort((a, b) => a.risk_score - b.risk_score)[0]
+
+  const fastestSafeModel = [...chartData]
+    .filter((m) => m.risk_score < SAFE_THRESHOLD)
+    .sort((a, b) => a.latency_ms - b.latency_ms)[0]
+
+  const balancedModel = [...chartData].sort(
+    (a, b) =>
+      scoreModel(b, meta.dataset_type) -
+      scoreModel(a, meta.dataset_type)
+  )[0]
+
+  function getBadges(modelName: string) {
+    const badges: string[] = []
+    if (safestModel?.model === modelName) badges.push("🛡 Safest")
+    if (fastestSafeModel?.model === modelName) badges.push("⚡ Fast Safe")
+    if (balancedModel?.model === modelName) badges.push("⚖️ Balanced")
+    return badges
+  }
+
+  /* ================= UI STATES ================= */
+
+  if (loading) return <p className="p-8">Loading…</p>
+  if (!doc) return <p className="p-8 text-red-500">Error loading</p>
+
+  const selectedModelData =
+    selectedModel === "ALL"
+      ? null
+      : sortedChartData.find((m) => m.model === selectedModel)
 
   /* ================= RENDER ================= */
 
   return (
     <div className="mx-auto max-w-7xl p-8 space-y-10">
 
-      {/* ===== Evaluation Summary ===== */}
-      <div className="rounded-xl border bg-gray-50 p-5 space-y-3">
-        <h2 className="text-sm font-semibold text-gray-700">
-          Evaluation Summary
-        </h2>
+      {/* ===== SORT + MODEL SELECT ===== */}
+      <div className="flex flex-wrap gap-6">
 
-        {recommendedModel && (
-          <div className="rounded-xl border bg-blue-50 p-5">
-            <h2 className="font-semibold text-blue-800">
-              🏆 System Recommendation
-            </h2>
-            <p className="mt-1 text-sm text-blue-700">
-              <strong>{recommendedModel}</strong> is the best model for{" "}
-              <strong>{meta.dataset_type ?? "this evaluation"}</strong>.
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* ===== 🔽 MODEL SELECTOR (THIS IS THE DROPDOWN) ===== */}
-      <div className="flex items-center gap-3">
-        <label className="text-sm font-medium text-gray-600">
-          View Model:
-        </label>
-        <select
-          value={selectedModel}
-          onChange={(e) => setSelectedModel(e.target.value)}
-          className="rounded-lg border px-3 py-2 text-sm"
-        >
-          <option value="ALL">Compare all models</option>
-          {MODEL_ORDER.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* ===== Charts ===== */}
-      {selectedModel === "ALL" && (
-        <ChartSection data={chartData} selectedModel="ALL" />
-      )}
-
-      {/* ===== Single Model Metrics ===== */}
-      {selectedModelData && (
-        <div
-          className={`rounded-xl border p-6 ${
-            selectedModelData.model === recommendedModel
-              ? "bg-green-50 border-green-400"
-              : "bg-white"
-          }`}
-        >
-          <h3 className="font-semibold mb-4">
-            Model: {selectedModelData.model}
-          </h3>
-
-          <MetricRow
-            label="Confidence (%)"
-            value={
-              isNoisy
-                ? `${selectedModelData.confidence_percent.toFixed(2)} ± ${(selectedModelData.confidence_std ?? 0).toFixed(2)}`
-                : selectedModelData.confidence_percent.toFixed(2)
-            }
-          />
-
-          <MetricRow
-            label="Latency (ms)"
-            value={
-              isNoisy
-                ? `${selectedModelData.latency_ms.toFixed(3)} ± ${(selectedModelData.latency_std ?? 0).toFixed(3)}`
-                : selectedModelData.latency_ms.toFixed(3)
-            }
-          />
-
-          <MetricRow
-            label="Entropy"
-            value={
-              isNoisy
-                ? `${selectedModelData.entropy.toFixed(4)} ± ${(selectedModelData.entropy_std ?? 0).toFixed(4)}`
-                : selectedModelData.entropy.toFixed(4)
-            }
-          />
-
-          <MetricRow
-            label="Stability"
-            value={
-              isNoisy
-                ? `${selectedModelData.stability.toFixed(4)} ± ${(selectedModelData.stability_std ?? 0).toFixed(4)}`
-                : selectedModelData.stability.toFixed(4)
-            }
-          />
+        <div>
+          <label className="text-sm font-medium">Sort</label>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as any)}
+            className="border rounded-lg px-3 py-2 block"
+          >
+            <option value="balanced">⚖️ Balanced</option>
+            <option value="latency">⚡ Fastest</option>
+            <option value="confidence">🎯 Confidence</option>
+            <option value="risk">🛡 Safest</option>
+          </select>
         </div>
+
+        <div>
+          <label className="text-sm font-medium">View Model</label>
+          <select
+            value={selectedModel}
+            onChange={(e) => setSelectedModel(e.target.value)}
+            className="border rounded-lg px-3 py-2 block"
+          >
+            <option value="ALL">All Models</option>
+            {MODEL_ORDER.map((m) => (
+              <option key={m}>{m}</option>
+            ))}
+          </select>
+        </div>
+
+      </div>
+
+      {/* ===== CHARTS ===== */}
+      {selectedModel === "ALL" && (
+        <ChartSection data={sortedChartData as ChartItem[]} selectedModel="ALL" />
       )}
 
-      {/* ===== Confusion Matrices ===== */}
-      { selectedModel === "ALL" && (
+      {/* ===== MODEL CARDS ===== */}
+      {(selectedModel === "ALL" ? sortedChartData : [selectedModelData]).map(
+        (m) =>
+          m && (
+            <div key={m.model} className="border rounded-xl p-6">
+              <h3 className="font-semibold">{m.model}</h3>
+
+              <div className="flex gap-2 my-2">
+                {getBadges(m.model).map((b) => (
+                  <span key={b} className="text-xs bg-blue-100 px-2 py-1 rounded">
+                    {b}
+                  </span>
+                ))}
+              </div>
+
+              <MetricRow label="Confidence" value={m.confidence_percent.toFixed(2) + "%"} />
+              <MetricRow label="Latency" value={m.latency_ms.toFixed(3) + " ms"} />
+              <MetricRow label="Risk Score" value={m.risk_score.toFixed(4)} />
+            </div>
+          )
+      )}
+
+      {/* ===== CONFUSION MATRICES ===== */}
+      {selectedModel === "ALL" && (
         <div className="space-y-8">
           {confusionMatrices.map((m) => (
             <ConfusionMatrix key={m.model} data={m} />
@@ -256,47 +242,10 @@ export default function ResultPage() {
         </div>
       )}
 
-      { selectedModelData && (
+      {selectedModel !== "ALL" && (
         <ConfusionMatrix
-          data={
-            confusionMatrices.find(
-              (m) => m.model === selectedModelData.model
-            )!
-          }
+          data={confusionMatrices.find((m) => m.model === selectedModel)!}
         />
-      )}
-
-      {/* ===== Overall Performance Summary ===== */}
-      {overall && (
-        <div className="rounded-2xl border bg-gray-50 p-6 space-y-4">
-          <h2 className="text-lg font-semibold text-gray-800">
-            Overall Performance Summary
-          </h2>
-
-          <SummaryRow
-            label="Fastest Model"
-            model={overall.fastest.model}
-            value={`${overall.fastest.latency_ms.toFixed(3)} ms`}
-          />
-
-          <SummaryRow
-            label="Most Confident Model"
-            model={overall.confident.model}
-            value={`${overall.confident.confidence_percent.toFixed(2)} %`}
-          />
-
-          <SummaryRow
-            label="Most Stable Model"
-            model={overall.stable.model}
-            value={overall.stable.stability.toFixed(4)}
-          />
-
-          <SummaryRow
-            label="Lowest Uncertainty Model"
-            model={overall.certain.model}
-            value={overall.certain.entropy.toFixed(4)}
-          />
-        </div>
       )}
     </div>
   )
@@ -309,17 +258,6 @@ function MetricRow({ label, value }: { label: string; value: string }) {
     <div className="flex justify-between text-sm py-1">
       <span className="text-gray-500">{label}</span>
       <span className="font-medium">{value}</span>
-    </div>
-  )
-}
-
-function SummaryRow({ label, model, value }: { label: string; model: string; value: string }) {
-  return (
-    <div className="flex justify-between rounded-lg bg-white px-4 py-2 border">
-      <span className="text-gray-600">{label}</span>
-      <span className="font-medium">
-        {model} · {value}
-      </span>
     </div>
   )
 }
