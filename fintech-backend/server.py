@@ -478,57 +478,98 @@ async def verify(image: UploadFile = File(...), raw_text: str = Form(...)):
             else "One or more characters differ between typed text and OCR output."
         ),
     }
+import base64
+
+def encode_img(img):
+    _, buf = cv2.imencode(".png", img)
+    return base64.b64encode(buf).decode()
 @app.post("/verify-digit-only")
 async def verify_digit_only(image: UploadFile = File(...)):
     try:
-        raw = Image.open(image.file)
-        cleaned = clean_image(raw)
+        raw_pil = Image.open(image.file).convert("L")
+        raw_np = np.array(raw_pil)
+
+        cleaned = clean_image(raw_pil)
         digit_imgs = segment_digits(cleaned)
 
         if not digit_imgs:
-            return {"verdict": "INVALID_INPUT", "reason": "No digits detected"}
+            return {
+                "verdict": "INVALID",
+                "digits": "",
+                "analysis": [],
+                "preview": None,
+                "reason": "No digits detected"
+            }
 
         analysis = []
         final_digits = []
-        verdict = "VALID"
+        final_verdict = "VALID"
+
+        preview_cropped = None
+        preview_normalized = None
 
         for i, dimg in enumerate(digit_imgs):
+
+            # Save first cropped preview
+            if preview_cropped is None:
+                preview_cropped = encode_img(dimg)
+
             mnist_img = normalize_mnist_digit(dimg)
+
             if mnist_img is None:
-                verdict = "INVALID"
                 analysis.append({
                     "position": i + 1,
                     "status": "INVALID",
-                    "reason": "Empty digit"
+                    "predicted": None,
+                    "confidence": 0,
+                    "possible_values": [],
                 })
+                final_digits.append("?")
+                final_verdict = "INVALID"
                 continue
+
+            # Save first normalized preview
+            if preview_normalized is None:
+                preview_normalized = encode_img(np.array(mnist_img))
 
             preds = classify_digit(mnist_img)
             best = preds[0]
 
-            status = "VALID"
-            if best["confidence"] < 70:
-                status = "INVALID"
-                verdict = "INVALID"
-            elif best["confidence"] < 90:
+            conf = best["confidence"]
+
+            if conf >= 90:
+                status = "VALID"
+            elif conf >= 70:
                 status = "AMBIGUOUS"
-                verdict = "AMBIGUOUS"
+                if final_verdict != "INVALID":
+                    final_verdict = "AMBIGUOUS"
+            else:
+                status = "INVALID"
+                final_verdict = "INVALID"
 
             analysis.append({
                 "position": i + 1,
-                "predicted": str(best["digit"]),
-                "confidence": best["confidence"],
                 "status": status,
-                "possible_values": [p["digit"] for p in preds]
+                "predicted": str(best["digit"]),
+                "confidence": conf,
+                "possible_values": [str(p["digit"]) for p in preds]
             })
 
             final_digits.append(str(best["digit"]))
 
         return {
-            "verdict": verdict,
+            "verdict": final_verdict,
             "digits": "".join(final_digits),
-            "analysis": analysis
+            "analysis": analysis,
+            "preview": {
+                "original": encode_img(raw_np),
+                "cropped": preview_cropped,
+                "normalized": preview_normalized
+            }
         }
 
     except Exception as e:
-        return {"verdict": "ERROR", "message": str(e)}
+        return {
+            "verdict": "ERROR",
+            "message": str(e)
+        }
